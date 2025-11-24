@@ -30,7 +30,7 @@ def scrape_and_save(origin, destination, departure_date, db):
 
         # Скрапим рейсы
         flights = AviasalesScraper.scrape_flights(search_params)
-        
+
         if not flights:
             print("❌ Рейсы не найдены. Возможные причины:")
             print("   - Неверные коды городов (используйте IATA коды, например: MOW, LED)")
@@ -42,7 +42,16 @@ def scrape_and_save(origin, destination, departure_date, db):
         saved_count = 0
         for flight in flights:
             try:
-                db.add_flight_price(flight)
+                # Конвертируем строковые даты обратно в объекты для БД
+                flight_for_db = flight.copy()
+
+                if isinstance(flight_for_db.get('departure_date'), str):
+                    flight_for_db['departure_date'] = datetime.strptime(flight_for_db['departure_date'], '%Y-%m-%d').date()
+                if isinstance(flight_for_db.get('scraped_at'), str):
+                    flight_for_db['scraped_at'] = datetime.fromisoformat(flight_for_db['scraped_at'])
+
+                db.add_flight_price(flight_for_db)
+
                 saved_count += 1
             except Exception as e:
                 print(f"⚠️  Ошибка при сохранении рейса: {e}")
@@ -77,7 +86,7 @@ def visualize_prices(origin, destination, departure_date, db, visualizer):
 
         # Выводим статистику
         visualizer.print_statistics(flight_prices)
-        
+
         # Строим графики
         visualizer.plot_price_history(flight_prices, origin, destination, departure_date)
     except Exception as e:
@@ -97,10 +106,11 @@ def monitor_prices(origin, destination, departure_date, db, visualizer, interval
     print(f"{'='*60}\n")
 
     iteration = 1
+    
     try:
         while True:
             print(f"\n🔄 Итерация #{iteration} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-            
+
             # Собираем данные
             saved_count = scrape_and_save(origin, destination, departure_date, db)
             if saved_count > 0:
@@ -123,13 +133,13 @@ def main():
 Примеры использования:
   # Собрать данные о рейсах Москва → Санкт-Петербург на 2025-01-15
   python main.py --origin MOW --destination LED --date 2025-01-15 --action scrape
-  
+
   # Визуализировать историю цен
   python main.py --origin MOW --destination LED --date 2025-01-15 --action visualize
-  
+
   # Запустить мониторинг с интервалом 30 минут
   python main.py --origin MOW --destination LED --date 2025-01-15 --action monitor --interval 30
-  
+
   # Собрать данные и сразу визуализировать
   python main.py --origin MOW --destination LED --date 2025-01-15 --action both
 
@@ -169,14 +179,13 @@ def main():
     except Exception as e:
         print(f"❌ Ошибка подключения к базе данных: {e}")
         print("   Убедитесь, что PostgreSQL запущен (docker-compose up -d)")
-        return    
+        return
 
     visualizer = FlightPriceVisualizer()
 
     # Выполнение действий
     if args.action == 'scrape':
         scrape_and_save(args.origin, args.destination, args.date, db)
-        
     elif args.action == 'visualize':
         visualize_prices(args.origin, args.destination, args.date, db, visualizer)
 

@@ -17,7 +17,7 @@ class AviasalesScraper:
         else:
             date_obj = datetime.strptime(departure_date, '%Y-%m-%d').date()
             date_str = date_obj.strftime('%d%m')
-
+        
         return f"{AviasalesScraper.BASE_URL}/search/{origin}{date_str}{destination}1"
 
     @browser(
@@ -67,7 +67,7 @@ class AviasalesScraper:
                 '.product-list__item',
                 '[class*="snippet"]'
             ]
-
+            
             flight_cards = []
             for selector in selectors:
                 flight_cards = driver.select_all(selector)
@@ -78,12 +78,22 @@ class AviasalesScraper:
             if not flight_cards:
                 print("❌ Карточки рейсов не найдены")
                 return []
-
+            
             for idx, card in enumerate(flight_cards[:20]):
                 try:
                     flight_data = AviasalesScraper._parse_flight_card(card, origin, destination, departure_date)
                     if flight_data and flight_data.get('price'):
-                        flights.append(flight_data)
+                        # Конвертируем datetime в строку для JSON
+                        flight_data_json = flight_data.copy()
+                        if 'scraped_at' in flight_data_json and isinstance(flight_data_json['scraped_at'], datetime):
+                            flight_data_json['scraped_at'] = flight_data_json['scraped_at'].isoformat()
+
+                        # Используем строковую версию даты для JSON
+                        if 'departure_date_str' in flight_data_json:
+                            flight_data_json['departure_date'] = flight_data_json['departure_date_str']
+                            del flight_data_json['departure_date_str']
+
+                        flights.append(flight_data_json)
                         print(f"Рейс {idx + 1}: {flight_data.get('airline', 'N/A')} - {flight_data['price']} руб.")
                 except Exception as e:
                     print(f"Ошибка при парсинге карточки рейса {idx + 1}: {e}")
@@ -100,10 +110,18 @@ class AviasalesScraper:
         """
         Парсит информацию из карточки рейса
         """
+        # Конвертируем дату в строку для JSON сериализации
+        if isinstance(departure_date, date):
+            departure_date_str = departure_date.isoformat()
+        else:
+            departure_date_str = departure_date
+            departure_date = datetime.strptime(departure_date, '%Y-%m-%d').date()
+
         flight_data = {
             'origin': origin,
             'destination': destination,
-            'departure_date': departure_date if isinstance(departure_date, date) else datetime.strptime(departure_date, '%Y-%m-%d').date(),
+            'departure_date': departure_date,  # Оставляем объект date для БД
+            'departure_date_str': departure_date_str,  # Добавляем строку для JSON
             'scraped_at': datetime.utcnow()
         }
 
@@ -134,7 +152,7 @@ class AviasalesScraper:
                 if airline.lower() in card_text.lower():
                     flight_data['airline'] = airline
                     break
-
+                            
             if 'airline' not in flight_data:
                 flight_data['airline'] = 'Unknown'
 
