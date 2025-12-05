@@ -43,8 +43,12 @@ class FlightPriceVisualizer:
         fig.suptitle(f'Анализ цен на рейсы {origin} → {destination}', fontsize=16, fontweight='bold')
 
         # 1. График изменения минимальной цены во времени
-        min_prices = df.groupby('scraped_at')['price'].min().reset_index()
-        axes[0, 0].plot(min_prices['scraped_at'], min_prices['price'], marker='o', linewidth=2, markersize=8, color='#2E86AB')
+        interval = '1H' # интервал можно менять
+        df['scraped_bin'] = df['scraped_at'].dt.floor(interval)
+
+        min_prices = df.groupby('scraped_bin')['price'].min().reset_index()
+        
+        axes[0, 0].plot(min_prices['scraped_bin'], min_prices['price'], marker='o', linewidth=2, markersize=8, color='#2E86AB')
         axes[0, 0].set_title('Минимальная цена по времени сбора данных', fontsize=12, fontweight='bold')
         axes[0, 0].set_xlabel('Время сбора данных', fontsize=10)
         axes[0, 0].set_ylabel('Цена (RUB)', fontsize=10)
