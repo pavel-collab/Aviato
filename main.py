@@ -9,6 +9,7 @@ from models import Database
 from scraper import AviasalesScraper
 from visualizer import FlightPriceVisualizer
 import time
+import uuid
 
 def scrape_and_save(origin, destination, departure_date, db):
     """
@@ -44,6 +45,10 @@ def scrape_and_save(origin, destination, departure_date, db):
             try:
                 # Конвертируем строковые даты обратно в объекты для БД
                 flight_for_db = flight.copy()
+
+                #! Temporary solution for timescaledb tables
+                #! Later we just need to make id is null
+                flight_for_db['id'] = uuid.uuid4().int % 2147483647
 
                 if isinstance(flight_for_db.get('departure_date'), str):
                     flight_for_db['departure_date'] = datetime.strptime(flight_for_db['departure_date'], '%Y-%m-%d').date()

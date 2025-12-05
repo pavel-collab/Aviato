@@ -101,7 +101,7 @@ class FlightPriceVisualizer:
         plt.savefig(filepath, dpi=300, bbox_inches='tight')
         print(f"График сохранен: {filepath}")
 
-        plt.show()
+        #plt.show()
         
         return filepath
 
