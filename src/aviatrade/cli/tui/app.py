@@ -11,10 +11,10 @@ from typing import Any
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Button, Footer, Header, Input, Label, Select
+from textual.widgets import Button, Footer, Header, Input, Label, Select, TabbedContent, TabPane
 from textual.worker import Worker, get_current_worker
 
-from aviatrade.cli.tui.widgets import LogPanel, StatusIndicator
+from aviatrade.cli.tui.widgets import ChartPanel, LogPanel, StatusIndicator
 from aviatrade.cli.tui.workers import redirect_output_to_tui
 from aviatrade.db import Database
 from aviatrade.scraper import AviasalesScraper
@@ -32,6 +32,9 @@ class AviaTradeApp(App):
         Binding("ctrl+c", "quit", "Quit"),
         Binding("escape", "cancel_operation", "Cancel"),
         Binding("f5", "execute", "Execute"),
+        Binding("1", "chart_price_history", "Price History"),
+        Binding("2", "chart_airlines", "Airlines"),
+        Binding("3", "chart_distribution", "Distribution"),
     ]
 
     def __init__(self) -> None:
@@ -41,6 +44,7 @@ class AviaTradeApp(App):
         self.visualizer: FlightPriceVisualizer | None = None
         self._current_worker: Worker[Any] | None = None
         self._monitor_running = False
+        self._chart_data: dict[str, Any] | None = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
@@ -80,8 +84,15 @@ class AviaTradeApp(App):
 
             with Vertical(id="output-panel"):
                 yield StatusIndicator(id="status-indicator")
-                yield Label("Application Log", id="log-title")
-                yield LogPanel(id="log-panel", highlight=True, markup=True)
+                with TabbedContent(id="output-tabs"):
+                    with TabPane("Log", id="tab-log"):
+                        yield LogPanel(id="log-panel", highlight=True, markup=True)
+                    with TabPane("Chart", id="tab-chart"):
+                        yield ChartPanel(id="chart-panel")
+                        yield Label(
+                            "[1] Price History  [2] Airlines  [3] Distribution",
+                            id="chart-hint",
+                        )
 
         yield Footer()
 
@@ -144,6 +155,61 @@ class AviaTradeApp(App):
     def action_cancel_operation(self) -> None:
         """Cancel operation via keyboard shortcut."""
         self._cancel_operation()
+
+    def action_chart_price_history(self) -> None:
+        """Show price history chart."""
+        self._show_chart("price_history")
+
+    def action_chart_airlines(self) -> None:
+        """Show airlines chart."""
+        self._show_chart("airlines")
+
+    def action_chart_distribution(self) -> None:
+        """Show price distribution chart."""
+        self._show_chart("distribution")
+
+    def _show_chart(self, chart_type: str) -> None:
+        """Switch to chart tab and display the specified chart type."""
+        # Switch to chart tab
+        tabs = self.query_one("#output-tabs", TabbedContent)
+        tabs.active = "tab-chart"
+
+        chart_panel = self.query_one("#chart-panel", ChartPanel)
+
+        if not self._chart_data:
+            self._log_warning("No chart data available. Run visualization first.")
+            return
+
+        if chart_type == "price_history":
+            chart_panel.plot_price_history(
+                self._chart_data["timestamps"],
+                self._chart_data["min_prices"],
+                title=f"Min Price Over Time (Avg: {self._chart_data['avg_price']:.0f} RUB)",
+            )
+        elif chart_type == "airlines":
+            chart_panel.plot_airline_prices(
+                self._chart_data["airline_stats"],
+                title="Price by Airline",
+            )
+        elif chart_type == "distribution":
+            chart_panel.plot_price_distribution(
+                self._chart_data["all_prices"],
+                title=f"Price Distribution ({self._chart_data['total_flights']} flights)",
+            )
+
+    def _update_chart(self, chart_data: dict[str, Any]) -> None:
+        """Update chart data and display price history chart."""
+        self._chart_data = chart_data
+        # Switch to chart tab and show default chart
+        tabs = self.query_one("#output-tabs", TabbedContent)
+        tabs.active = "tab-chart"
+
+        chart_panel = self.query_one("#chart-panel", ChartPanel)
+        chart_panel.plot_price_history(
+            chart_data["timestamps"],
+            chart_data["min_prices"],
+            title=f"Min Price Over Time (Avg: {chart_data['avg_price']:.0f} RUB)",
+        )
 
     async def _execute_action(self) -> None:
         """Execute the selected action."""
@@ -316,13 +382,22 @@ class AviaTradeApp(App):
                 if worker.is_cancelled:
                     return
 
+                # Generate TUI chart data
+                chart_data = self.visualizer.get_tui_chart_data(flight_prices)
+                if chart_data:
+                    self.call_from_thread(self._update_chart, chart_data)
+                    self.call_from_thread(
+                        self._log_success, "Chart displayed. Use [1][2][3] to switch views"
+                    )
+
+                # Also save PNG chart
                 chart_path = self.visualizer.plot_price_history(
                     flight_prices, origin, destination, date
                 )
 
                 if chart_path:
                     self.call_from_thread(
-                        self._log_success, f"Chart saved: {Path(chart_path).name}"
+                        self._log_success, f"PNG saved: {Path(chart_path).name}"
                     )
                     self.call_from_thread(
                         self._set_status, "success", "Visualization complete"
@@ -487,12 +562,22 @@ class AviaTradeApp(App):
                 flight_prices = self.db.get_price_history(origin, destination, date)
                 if flight_prices:
                     self.visualizer.print_statistics(flight_prices)
+
+                    # Generate TUI chart
+                    chart_data = self.visualizer.get_tui_chart_data(flight_prices)
+                    if chart_data:
+                        self.call_from_thread(self._update_chart, chart_data)
+                        self.call_from_thread(
+                            self._log_success, "Chart displayed. Use [1][2][3] to switch views"
+                        )
+
+                    # Also save PNG chart
                     chart_path = self.visualizer.plot_price_history(
                         flight_prices, origin, destination, date
                     )
                     if chart_path:
                         self.call_from_thread(
-                            self._log_success, f"Chart saved: {Path(chart_path).name}"
+                            self._log_success, f"PNG saved: {Path(chart_path).name}"
                         )
 
                 self.call_from_thread(self._set_status, "success", "Scrape + Visualize complete")

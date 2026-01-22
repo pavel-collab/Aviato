@@ -213,3 +213,72 @@ class FlightPriceVisualizer:
             )
 
         print("=" * 60 + "\n")
+
+    def get_tui_chart_data(
+        self, flight_prices: list[Any]
+    ) -> dict[str, Any] | None:
+        """Prepare data for TUI chart display.
+
+        Args:
+            flight_prices: List of FlightPrice ORM objects.
+
+        Returns:
+            Dict with chart data or None if no data.
+        """
+        if not flight_prices:
+            return None
+
+        # Convert to lists for processing
+        data = []
+        for fp in flight_prices:
+            data.append({
+                "scraped_at": fp.scraped_at,
+                "price": fp.price,
+                "airline": fp.airline if fp.airline else "Unknown",
+            })
+
+        # Sort by time
+        data.sort(key=lambda x: x["scraped_at"])
+
+        # Prepare min price over time (hourly bins)
+        from collections import defaultdict
+
+        hourly_prices: dict[datetime, list[float]] = defaultdict(list)
+        for d in data:
+            hour_bin = d["scraped_at"].replace(minute=0, second=0, microsecond=0)
+            hourly_prices[hour_bin].append(d["price"])
+
+        min_price_timestamps = sorted(hourly_prices.keys())
+        min_prices = [min(hourly_prices[ts]) for ts in min_price_timestamps]
+
+        # Prepare airline statistics
+        airline_prices: dict[str, list[float]] = defaultdict(list)
+        for d in data:
+            airline_prices[d["airline"]].append(d["price"])
+
+        airline_stats = {}
+        for airline, prices in airline_prices.items():
+            airline_stats[airline] = (
+                min(prices),
+                sum(prices) / len(prices),
+                max(prices),
+            )
+
+        # Sort airlines by min price
+        airline_stats = dict(
+            sorted(airline_stats.items(), key=lambda x: x[1][0])
+        )
+
+        # All prices for histogram
+        all_prices = [d["price"] for d in data]
+
+        return {
+            "timestamps": min_price_timestamps,
+            "min_prices": min_prices,
+            "airline_stats": airline_stats,
+            "all_prices": all_prices,
+            "total_flights": len(flight_prices),
+            "min_price": min(all_prices),
+            "max_price": max(all_prices),
+            "avg_price": sum(all_prices) / len(all_prices),
+        }

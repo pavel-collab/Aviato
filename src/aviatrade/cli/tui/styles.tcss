@@ -34,8 +34,9 @@ Screen {
 #log-title {
     text-style: bold;
     color: $secondary;
-    margin-top: 1;
-    margin-bottom: 1;
+    margin-top: 0;
+    margin-bottom: 0;
+    display: none;
 }
 
 .form-label {
@@ -80,6 +81,29 @@ Select {
     height: 1fr;
     border: solid $secondary;
     scrollbar-gutter: stable;
+}
+
+/* Tabbed content */
+#output-tabs {
+    height: 1fr;
+}
+
+#tab-log, #tab-chart {
+    height: 1fr;
+    padding: 0;
+}
+
+#chart-panel {
+    height: 1fr;
+    border: solid $primary;
+}
+
+#chart-hint {
+    height: 1;
+    text-align: center;
+    color: $text-muted;
+    background: $surface;
+    padding: 0 1;
 }
 
 /* Status colors */
