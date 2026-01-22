@@ -1,6 +1,6 @@
 """Main Textual TUI application for AviaTrade."""
 
-import asyncio
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -183,31 +183,39 @@ class AviaTradeApp(App):
 
         if action == "scrape":
             self._current_worker = self.run_worker(
-                self._scrape_worker(origin, destination, date_str),
+                self._scrape_worker,
+                origin, destination, date_str,
                 name="scrape",
                 exclusive=True,
+                thread=True,
             )
         elif action == "visualize":
             self._current_worker = self.run_worker(
-                self._visualize_worker(origin, destination, date_str),
+                self._visualize_worker,
+                origin, destination, date_str,
                 name="visualize",
                 exclusive=True,
+                thread=True,
             )
         elif action == "monitor":
             self._monitor_running = True
             self._current_worker = self.run_worker(
-                self._monitor_worker(origin, destination, date_str, interval),
+                self._monitor_worker,
+                origin, destination, date_str, interval,
                 name="monitor",
                 exclusive=True,
+                thread=True,
             )
         elif action == "both":
             self._current_worker = self.run_worker(
-                self._both_worker(origin, destination, date_str),
+                self._both_worker,
+                origin, destination, date_str,
                 name="both",
                 exclusive=True,
+                thread=True,
             )
 
-    async def _scrape_worker(self, origin: str, destination: str, date: str) -> int:
+    def _scrape_worker(self, origin: str, destination: str, date: str) -> int:
         """Worker for scraping operation."""
         worker = get_current_worker()
 
@@ -274,7 +282,7 @@ class AviaTradeApp(App):
         finally:
             self.call_from_thread(self._reset_buttons)
 
-    async def _visualize_worker(self, origin: str, destination: str, date: str) -> None:
+    def _visualize_worker(self, origin: str, destination: str, date: str) -> None:
         """Worker for visualization operation."""
         worker = get_current_worker()
 
@@ -330,7 +338,7 @@ class AviaTradeApp(App):
         finally:
             self.call_from_thread(self._reset_buttons)
 
-    async def _monitor_worker(
+    def _monitor_worker(
         self, origin: str, destination: str, date: str, interval_minutes: int
     ) -> None:
         """Worker for continuous monitoring."""
@@ -407,7 +415,7 @@ class AviaTradeApp(App):
                 for _ in range(interval_minutes * 60):
                     if worker.is_cancelled or not self._monitor_running:
                         break
-                    await asyncio.sleep(1)
+                    time.sleep(1)
 
             self.call_from_thread(
                 self._log, f"Monitor stopped after {iteration - 1} iterations"
@@ -421,7 +429,7 @@ class AviaTradeApp(App):
             self._monitor_running = False
             self.call_from_thread(self._reset_buttons)
 
-    async def _both_worker(self, origin: str, destination: str, date: str) -> None:
+    def _both_worker(self, origin: str, destination: str, date: str) -> None:
         """Worker for scrape + visualize operation."""
         worker = get_current_worker()
 
