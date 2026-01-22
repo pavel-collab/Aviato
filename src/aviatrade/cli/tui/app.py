@@ -1,8 +1,10 @@
 """Main Textual TUI application for AviaTrade."""
 
+import asyncio
 import time
 import uuid
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -183,16 +185,14 @@ class AviaTradeApp(App):
 
         if action == "scrape":
             self._current_worker = self.run_worker(
-                self._scrape_worker,
-                origin, destination, date_str,
+                partial(self._scrape_worker, origin, destination, date_str),
                 name="scrape",
                 exclusive=True,
                 thread=True,
             )
         elif action == "visualize":
             self._current_worker = self.run_worker(
-                self._visualize_worker,
-                origin, destination, date_str,
+                partial(self._visualize_worker, origin, destination, date_str),
                 name="visualize",
                 exclusive=True,
                 thread=True,
@@ -200,16 +200,14 @@ class AviaTradeApp(App):
         elif action == "monitor":
             self._monitor_running = True
             self._current_worker = self.run_worker(
-                self._monitor_worker,
-                origin, destination, date_str, interval,
+                partial(self._monitor_worker, origin, destination, date_str, interval),
                 name="monitor",
                 exclusive=True,
                 thread=True,
             )
         elif action == "both":
             self._current_worker = self.run_worker(
-                self._both_worker,
-                origin, destination, date_str,
+                partial(self._both_worker, origin, destination, date_str),
                 name="both",
                 exclusive=True,
                 thread=True,
