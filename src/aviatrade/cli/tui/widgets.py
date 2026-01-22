@@ -160,11 +160,11 @@ class ChartPanel(PlotextPlot):
         avg_prices = [airline_data[a][1] for a in airlines]
         max_prices = [airline_data[a][2] for a in airlines]
 
-        self.plt.simple_stacked_bar(
+        self.plt.stacked_bar(
             airlines,
             [min_prices, [a - m for a, m in zip(avg_prices, min_prices)]],
-            labels=["Min", "To Avg"],
-            colors=["green", "yellow"],
+            label=["Min", "To Avg"],
+            color=["green", "yellow"],
         )
 
         self.plt.title(title)
