@@ -1,0 +1,104 @@
+/* AviaTrade TUI Styles */
+
+Screen {
+    layout: horizontal;
+}
+
+#main-container {
+    layout: horizontal;
+    height: 100%;
+    width: 100%;
+}
+
+#input-panel {
+    width: 40;
+    min-width: 35;
+    max-width: 50;
+    height: 100%;
+    padding: 1 2;
+    border: solid $primary;
+}
+
+#output-panel {
+    width: 1fr;
+    height: 100%;
+    padding: 1 2;
+}
+
+#form-title {
+    text-style: bold;
+    color: $primary;
+    margin-bottom: 1;
+}
+
+#log-title {
+    text-style: bold;
+    color: $secondary;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.form-label {
+    margin-top: 1;
+    color: $text;
+}
+
+Input {
+    margin-bottom: 0;
+}
+
+Select {
+    margin-bottom: 0;
+}
+
+#button-row {
+    margin-top: 2;
+    height: auto;
+    layout: horizontal;
+}
+
+#button-row Button {
+    margin-right: 1;
+}
+
+#execute-btn {
+    width: 50%;
+}
+
+#cancel-btn {
+    width: 50%;
+}
+
+#status-indicator {
+    height: 3;
+    padding: 1;
+    border: round $primary;
+    margin-bottom: 1;
+}
+
+#log-panel {
+    height: 1fr;
+    border: solid $secondary;
+    scrollbar-gutter: stable;
+}
+
+/* Status colors */
+.status-idle {
+    color: $text-muted;
+}
+
+.status-loading {
+    color: $warning;
+}
+
+.status-success {
+    color: $success;
+}
+
+.status-error {
+    color: $error;
+}
+
+.status-warning {
+    color: $warning;
+}
