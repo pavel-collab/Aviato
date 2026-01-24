@@ -210,7 +210,7 @@ class AgentFactory:
     """Factory for building the AI agent graph."""
 
     @staticmethod
-    def build_agent(model_name: str = "openai/gpt-4o-mini", api_key: Optional[str] = None):
+    def build_agent(model_name: str = "google/gemini-2.0-flash-exp:free", api_key: Optional[str] = None):
         """Build and compile the agent graph.
 
         Args:
