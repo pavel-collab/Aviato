@@ -166,10 +166,15 @@ def run_agent() -> None:
     from aviatrade.agent.agent import AgentFactory, AgentState
 
     api_key = os.getenv("OPENROUTER_API_KEY")
+    model_name = os.getenv("MODEL_NAME")
+
     if not api_key:
         print("Error: OPENROUTER_API_KEY not set in environment")
         print("   Set it in your .env file or export OPENROUTER_API_KEY=your_key")
         return
+    
+    if not model_name:
+        model_name = "openai/gpt-oss-120b:free"
 
     print(f"\n{'=' * 60}")
     print("AI AGENT MODE")
