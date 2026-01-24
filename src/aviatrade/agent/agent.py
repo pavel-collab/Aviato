@@ -109,7 +109,7 @@ WRONG behavior:
 - Just describing that get_price_stats_tool should be used without calling it"""
 
 def agent_node(state: AgentState, config: AgentConfig):
-    print(f"-- DEBUG --\n\tEnter to the agent node Iteration: {state.get("reflection_iterations", 0)}")
+    print("-- DEBUG --\n\tEnter to the agent node.")
 
     """Main agent node that processes messages and decides on actions."""
     llm = config.llm
