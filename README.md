@@ -182,3 +182,115 @@ The TUI is built with [Textual](https://textual.textualize.io/) framework:
 - `tui/styles.tcss` - Textual CSS styles
 
 Workers run in separate threads to keep the UI responsive during scraping operations.
+
+### How to set up the Timescale extension for PostgreSQL
+
+If you're using your PostgreSQL database service not in docker, but as a real hosted servise, you may want to set up an
+addition extension TimescaleDB for time data. This extension allow to separate time data through the separated time chunks, 
+using optimal data saving on the disk, automate statistics aggregation and zip the old data to reduce data disk space.
+
+Use the following commands to set up the TimescaleDB extension.
+
+#### Build from scratch
+
+Firstly you need to download the Timescaledb code and build the extension as a shared lib object (.so file).
+```
+# clone the timescale source code
+git clone https://github.com/timescale/timescaledb.git
+cd timescaledb
+
+# configure the project (use it without OpenSSL)
+./bootstrap -DUSE_OPENSSL=0
+
+# build the extension
+cd ./build && make
+
+# install the extension
+sudo make install
+```
+
+#### Setings for the postgresql server
+
+When you have installed the timescaledb extension you need to add this extension to the postgresql shared libraries.
+Open the postgresql.conf configuration file and add 'timescaledb' to 'shared_preload_libraries' parameter.
+```
+vim postgresql.conf
+
+# set: shared_preload_libraries = 'timescaledb'
+```
+
+After you change parameters in postgresql.conf you need to restart the postgresql server:
+```
+pg_ctl restart
+```
+
+#### Setting the timescaledb features
+
+First of all check if your postgresql server is working correct
+```
+pg_ctl status
+```
+
+If all is ok, attach your psql session and connect to your database with table 'flight_prices'
+```
+psql
+
+# in the psql session
+\c flight prices
+```
+
+You need to add the extension to your database:
+```
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+```
+
+Now you're ready to modify your existing table with content and set timescaledb feature.
+
+Before set up the hypertable we need to change the table primary key to time column:
+```
+ALTER TABLE flight_prices DROP CONSTRAINT flight_prices_pkey;
+flight_prices=# alter table flight_prices add primary key (scraped_at);
+```
+
+First of all make the content table to gypertable:
+```
+SELECT create_hypertable('flight_prices', by_range('scraped_at'), migrate_data => true);
+```
+
+After that we need to set up the chunk time interval
+```
+SELECT set_chunk_time_interval('flight_prices', INTERVAL '1 day');
+```
+
+And the last but not the least: we will st up a compression policy.
+Set the compression
+```
+ALTER TABLE flight_prices
+    SET (timescaledb.compress,
+         timescaledb.compress_orderby='scraped_at');
+```
+
+and autocompress policy
+```
+SELECT add_compression_policy(
+  'flight_prices',
+  compress_after => INTERVAL '2 day');
+```
+
+#### Check the timescaledb settings
+
+After you have successful set the timescaledb extension, you can check how your table was changed.
+Firstly check the time partitions -- chunks:
+```
+SELECT show_chunks('flight_prices');
+```
+
+Check the compresed partitions:
+```
+SELECT compress_chunk(c) FROM show_chunks('flight_prices') c;
+```
+
+Check the chunks compression metadata:
+```
+SELECT chunk_name, compression_status, before_compression_total_bytes, after_compression_total_bytes FROM chunk_compression_stats('flight_prices');
+```
