@@ -1,12 +1,15 @@
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
 from langgraph.prebuilt import ToolNode
 from langgraph.graph import START, END, StateGraph, MessagesState
-import os
 from typing import Optional
 
-from tool_wrappers import scrape_and_save_tool, visualize_prices_tool, monitor_prices_tool, get_price_stats_tool
+from aviatrade.agent.tool_wrappers import (
+    scrape_and_save_tool,
+    visualize_prices_tool,
+    monitor_prices_tool,
+    get_price_stats_tool
+)
 
 class AgentConfig:
     def __init__(self, model_name: str, api_key: str):
@@ -42,15 +45,36 @@ class AgentState(MessagesState):
 tools = [
         scrape_and_save_tool,
         visualize_prices_tool,
-        monitor_prices_tool
+        monitor_prices_tool,
+        get_price_stats_tool
 ]
+
+SYSTEM_PROMPT = """You are an AI assistant for flight price monitoring on Aviasales.ru.
+You help users scrape, analyze, and visualize flight prices.
+
+Available tools:
+- scrape_and_save_tool: Scrape flight data from Aviasales and save to database
+- visualize_prices_tool: Generate price visualization charts
+- monitor_prices_tool: Monitor prices at specified intervals (in minutes)
+- get_price_stats_tool: Get price statistics for a specific route and date
+
+Important:
+- Always use IATA airport codes (e.g., MOW for Moscow, LED for Saint-Petersburg, AER for Sochi)
+- Dates must be in YYYY-MM-DD format
+- When the user asks about flight prices, use the appropriate tool based on their request
+
+Answer in the same language as the user's question."""
 
 def agent_node(state: AgentState, config: AgentConfig):
     llm = config.llm
     llm_with_tools = llm.bind_tools(tools)
-    
+
     messages = state["messages"]
-    
+
+    # Add system prompt if not already present
+    if not any(isinstance(m, SystemMessage) for m in messages):
+        messages = [SystemMessage(content=SYSTEM_PROMPT)] + list(messages)
+
     response = llm_with_tools.invoke(messages)
     
     model_reflection = bool(response.tool_calls)
@@ -58,7 +82,7 @@ def agent_node(state: AgentState, config: AgentConfig):
     return {
             "messages": [response], # добавляем ответ модели в историю сообщений "messages
             "need_reflection": model_reflection,
-            "reflection_iteration": state.get("reflection_iteration", 0) + 1
+            "reflection_iterations": state.get("reflection_iterations", 0) + 1
     }
         
 def reflection_node(state: AgentState):
@@ -69,7 +93,7 @@ def reflection_node(state: AgentState):
     
     if tool_messages:
             last_tool_message = tool_messages[-1]
-            print(f"-- DEBUG --\n\tLast tool message: {last_tool_message[:100]}...")
+            print(f"-- DEBUG --\n\tLast tool message: {last_tool_message.content[:100]}...")
             
     reflection_message = HumanMessage(content="Проанализируй результаты работы модели, составь summary и дай ответ пользователю")
     return {
@@ -107,7 +131,7 @@ def router_node(state: AgentState):
 class AgentFactory:
     @staticmethod
     def build_agent(model_name: str="openai/gpt-oss-120b:free", api_key: Optional[str]=None):
-        agent_config = AgentConfig(model_name="openai/gpt-oss-120b:free", api_key=api_key)
+        agent_config = AgentConfig(model_name=model_name, api_key=api_key)
 
         graph = StateGraph(AgentState)
 
@@ -128,32 +152,13 @@ class AgentFactory:
         )
         graph.add_edge("tools", "agent")
         graph.add_edge("reflection", "supervisor")
-        
+        graph.add_edge("supervisor", END)
+
         compiled_graph = graph.compile()
         return compiled_graph
     
-    #! Нарушение принципа единой ответственности для класса
     @staticmethod
     def draw_compiled_agent_schema(compiled_graph) -> None:
+        """Draw and save the agent graph schema to a PNG file."""
         with open('determined_agent_scheme.png', 'wb') as f:
             f.write(compiled_graph.get_graph().draw_mermaid_png())
-
-if __name__ == "__main__":
-    load_dotenv()
-    api_key = os.getenv("OPENROUTER_API_KEY")
-
-    compiled_graph = AgentFactory.build_agent(
-            model_name="openai/gpt-oss-120b:free",
-            api_key=api_key
-    )
-    
-    user_input = input(f"Input your prompt: ")
-    initial_graph_state = AgentState(
-            messages=[HumanMessage(content=user_input)],
-            max_reflection_iterations=3,
-            reflection_iterations=0
-    )
-    
-    final_state = compiled_graph.invoke(initial_graph_state)
-    for i, msg in enumerate(final_state["messages"]):
-            print(f"-- Message {i} --\n{msg.content}")

@@ -6,7 +6,7 @@ from datetime import datetime
 from aviatrade.db import Database
 from aviatrade.visualization import FlightPriceVisualizer
 
-from lib import scrape_and_save, visualize_prices, monitor_prices
+from aviatrade.cli.lib import scrape_and_save, visualize_prices, monitor_prices, run_agent
 
 
 def main() -> None:
@@ -31,6 +31,9 @@ Examples:
   # Scrape and visualize together
   aviatrade --origin MOW --destination LED --date 2025-01-15 --action both
 
+  # Run AI agent (developer mode)
+  aviatrade --action agent
+
 Popular IATA codes for Russian cities:
   MOW - Moscow, LED - Saint-Petersburg, SVX - Yekaterinburg
   KZN - Kazan, OVB - Novosibirsk, AER - Sochi
@@ -51,9 +54,9 @@ Popular IATA codes for Russian cities:
     parser.add_argument("--date", required=False, help="Departure date in YYYY-MM-DD format")
     parser.add_argument(
         "--action",
-        choices=["scrape", "visualize", "monitor", "both"],
+        choices=["scrape", "visualize", "monitor", "both", "agent"],
         default="both",
-        help="Action: scrape, visualize, monitor, or both (default: both)",
+        help="Action: scrape, visualize, monitor, both, or agent (default: both)",
     )
     parser.add_argument(
         "--interval",
@@ -71,9 +74,16 @@ Popular IATA codes for Russian cities:
         tui_main()
         return
 
-    # Check required arguments for CLI mode
+    # Agent mode doesn't require origin/destination/date
+    if args.action == "agent":
+        print("Starting AviaTrade AI Agent mode")
+        run_agent()
+        print("\nDone!")
+        return
+
+    # Check required arguments for other CLI modes
     if not all([args.origin, args.destination, args.date]):
-        parser.error("--origin, --destination, and --date are required (or use --tui for interactive mode)")
+        parser.error("--origin, --destination, and --date are required (or use --tui for interactive mode, or --action agent)")
 
     # Validate date
     try:

@@ -155,3 +155,65 @@ def monitor_prices(
     except KeyboardInterrupt:
         print("\n\nMonitoring stopped by user")
         print(f"Total iterations completed: {iteration - 1}")
+
+
+def run_agent() -> None:
+    """Run the AI agent in interactive mode."""
+    import os
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    # Lazy import to avoid loading agent dependencies unless needed
+    from aviatrade.agent.agent import AgentFactory, AgentState
+
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        print("Error: OPENROUTER_API_KEY not set in environment")
+        print("   Set it in your .env file or export OPENROUTER_API_KEY=your_key")
+        return
+
+    print(f"\n{'=' * 60}")
+    print("AI AGENT MODE")
+    print("Available commands:")
+    print("   - Scrape flight prices from Aviasales")
+    print("   - Visualize price history")
+    print("   - Monitor prices at intervals")
+    print("   - Get price statistics")
+    print("Type 'exit' or 'quit' to leave agent mode")
+    print(f"{'=' * 60}\n")
+
+    try:
+        compiled_graph = AgentFactory.build_agent(api_key=api_key)
+    except Exception as e:
+        print(f"Error initializing agent: {e}")
+        return
+
+    while True:
+        try:
+            user_input = input("Agent> ").strip()
+
+            if not user_input:
+                continue
+
+            if user_input.lower() in ('exit', 'quit'):
+                print("Exiting agent mode")
+                break
+
+            initial_state = AgentState(
+                messages=[HumanMessage(content=user_input)],
+                max_reflection_iterations=3,
+                reflection_iterations=0
+            )
+
+            final_state = compiled_graph.invoke(initial_state)
+
+            # Print the last AI message as response
+            for msg in reversed(final_state["messages"]):
+                if isinstance(msg, AIMessage) and msg.content:
+                    print(f"\n{msg.content}\n")
+                    break
+
+        except KeyboardInterrupt:
+            print("\n\nAgent mode interrupted")
+            break
+        except Exception as e:
+            print(f"Error: {e}")

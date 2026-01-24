@@ -144,3 +144,4 @@ Top airlines information: {df_top.to_json()}
 
 Average price: {avg_price}
 """
+    return result_str
