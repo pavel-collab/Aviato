@@ -211,6 +211,8 @@ def run_agent() -> None:
 
             final_state = compiled_graph.invoke(initial_state)
 
+            print(f"-- DEBUG --\n\tEnd of the agent work\n\tAgent message history len: {len(final_state['messages'])}")
+
             # Print the last AI message as response
             for msg in reversed(final_state["messages"]):
                 if isinstance(msg, AIMessage) and msg.content:

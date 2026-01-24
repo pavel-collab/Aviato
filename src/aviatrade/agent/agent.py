@@ -109,6 +109,8 @@ WRONG behavior:
 - Just describing that get_price_stats_tool should be used without calling it"""
 
 def agent_node(state: AgentState, config: AgentConfig):
+    print(f"-- DEBUG --\n\tEnter to the agent node Iteration: {state.get("reflection_iterations", 0)}")
+
     """Main agent node that processes messages and decides on actions."""
     llm = config.llm
     # Use tool_choice="auto" to encourage the model to use tools when appropriate
@@ -140,6 +142,8 @@ def analysis_node(state: AgentState, config: AgentConfig):
     This node is called after tools have been executed to help the agent
     synthesize the results into a coherent analysis for the user.
     """
+    print("-- DEBUG --\n\tEnter to the analysis node")
+
     llm = config.llm
     messages = list(state["messages"])
 
@@ -177,6 +181,8 @@ Be concise but insightful. Focus on actionable advice.""")
 def router_node(state: AgentState):
     """Route to appropriate next node based on current state."""
     messages = state["messages"]
+
+    print("-- DEBUG --\n\tEnter to the router node")
 
     if not messages:
         return "end"
