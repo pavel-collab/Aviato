@@ -169,6 +169,9 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # Launch interactive TUI
+  aviatrade --tui
+
   # Scrape flights Moscow -> Saint-Petersburg on 2025-01-15
   aviatrade --origin MOW --destination LED --date 2025-01-15 --action scrape
 
@@ -188,12 +191,17 @@ Popular IATA codes for Russian cities:
     )
 
     parser.add_argument(
-        "--origin", required=True, help="Origin city IATA code (e.g.: MOW)"
+        "--tui",
+        action="store_true",
+        help="Launch interactive TUI instead of CLI",
     )
     parser.add_argument(
-        "--destination", required=True, help="Destination city IATA code (e.g.: LED)"
+        "--origin", required=False, help="Origin city IATA code (e.g.: MOW)"
     )
-    parser.add_argument("--date", required=True, help="Departure date in YYYY-MM-DD format")
+    parser.add_argument(
+        "--destination", required=False, help="Destination city IATA code (e.g.: LED)"
+    )
+    parser.add_argument("--date", required=False, help="Departure date in YYYY-MM-DD format")
     parser.add_argument(
         "--action",
         choices=["scrape", "visualize", "monitor", "both"],
@@ -208,6 +216,17 @@ Popular IATA codes for Russian cities:
     )
 
     args = parser.parse_args()
+
+    # Launch TUI if requested
+    if args.tui:
+        from aviatrade.cli.tui import main as tui_main
+
+        tui_main()
+        return
+
+    # Check required arguments for CLI mode
+    if not all([args.origin, args.destination, args.date]):
+        parser.error("--origin, --destination, and --date are required (or use --tui for interactive mode)")
 
     # Validate date
     try:
