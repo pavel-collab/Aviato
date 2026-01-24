@@ -74,7 +74,7 @@ class FlightPriceVisualizer:
         )
 
         # 1. Minimum price over time
-        interval = "1H"
+        interval = "1h"
         df["scraped_bin"] = df["scraped_at"].dt.floor(interval)
         min_prices = df.groupby("scraped_bin")["price"].min().reset_index()
 

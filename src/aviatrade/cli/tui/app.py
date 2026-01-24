@@ -1,6 +1,7 @@
 """Main Textual TUI application for AviaTrade."""
 
 import asyncio
+import os
 import time
 import uuid
 from datetime import datetime
@@ -14,7 +15,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Footer, Header, Input, Label, Select, TabbedContent, TabPane
 from textual.worker import Worker, get_current_worker
 
-from aviatrade.cli.tui.widgets import ChartPanel, LogPanel, StatusIndicator
+from aviatrade.cli.tui.widgets import AgentPanel, ChartPanel, LogPanel, StatusIndicator
 from aviatrade.cli.tui.workers import redirect_output_to_tui
 from aviatrade.db import Database
 from aviatrade.scraper import AviasalesScraper
@@ -45,6 +46,8 @@ class AviaTradeApp(App):
         self._current_worker: Worker[Any] | None = None
         self._monitor_running = False
         self._chart_data: dict[str, Any] | None = None
+        self._agent_graph = None
+        self._agent_messages: list = []
 
     def compose(self) -> ComposeResult:
         """Create child widgets."""
@@ -73,6 +76,7 @@ class AviaTradeApp(App):
                         ("Scrape Flights", "scrape"),
                         ("Visualize Data", "visualize"),
                         ("Monitor Prices", "monitor"),
+                        ("AI Agent", "agent"),
                     ],
                     id="action-select",
                     value="both",
@@ -81,6 +85,8 @@ class AviaTradeApp(App):
                 with Horizontal(id="button-row"):
                     yield Button("Execute", id="execute-btn", variant="primary")
                     yield Button("Cancel", id="cancel-btn", variant="error", disabled=True)
+
+                yield AgentPanel(id="agent-panel")
 
             with Vertical(id="output-panel"):
                 yield StatusIndicator(id="status-indicator")
@@ -101,6 +107,19 @@ class AviaTradeApp(App):
         self._log("AviaTrade TUI started")
         self._log("Connecting to database...")
         await self._initialize_database()
+        # Hide agent panel initially
+        self.query_one("#agent-panel", AgentPanel).display = False
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Handle action select change."""
+        if event.select.id == "action-select":
+            agent_panel = self.query_one("#agent-panel", AgentPanel)
+            if event.value == "agent":
+                agent_panel.display = True
+                self._log("AI Agent mode selected")
+                self._log("Enter your request in the agent input field below")
+            else:
+                agent_panel.display = False
 
     async def _initialize_database(self) -> None:
         """Initialize database connection."""
@@ -601,3 +620,92 @@ class AviaTradeApp(App):
         """Reset button states."""
         self.query_one("#execute-btn", Button).disabled = False
         self.query_one("#cancel-btn", Button).disabled = True
+
+    def _initialize_agent(self) -> bool:
+        """Initialize the AI agent."""
+        if self._agent_graph is not None:
+            return True
+
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        model_name = os.getenv("MODEL_NAME", "openai/gpt-4o-mini")
+        if not api_key:
+            self._log_error("OPENROUTER_API_KEY not set in environment")
+            self._log("Set it in your .env file or export OPENROUTER_API_KEY=your_key")
+            return False
+
+        try:
+            from aviatrade.agent.agent import AgentFactory
+            self._agent_graph = AgentFactory.build_agent(model_name=model_name, api_key=api_key)
+            self._log_success(f"AI Agent initialized successfully (model: {model_name})")
+            return True
+        except Exception as e:
+            self._log_error(f"Failed to initialize agent: {e}")
+            return False
+
+    def on_agent_panel_agent_submit(self, event: AgentPanel.AgentSubmit) -> None:
+        """Handle agent submit event from AgentPanel."""
+        user_input = event.message.strip()
+        if not user_input:
+            return
+
+        self._log(f"[bold cyan]You:[/bold cyan] {user_input}")
+
+        self.query_one("#cancel-btn", Button).disabled = False
+        self._current_worker = self.run_worker(
+            partial(self._agent_worker, user_input),
+            name="agent",
+            exclusive=True,
+            thread=True,
+        )
+
+    def _agent_worker(self, user_input: str) -> None:
+        """Worker for agent interaction."""
+        worker = get_current_worker()
+
+        def log_to_tui(msg: str) -> None:
+            if not worker.is_cancelled:
+                self.call_from_thread(self._log, msg)
+
+        self.call_from_thread(self._set_status, "loading", "Agent is thinking...")
+
+        try:
+            if not self.call_from_thread(self._initialize_agent):
+                self.call_from_thread(self._set_status, "error", "Agent not initialized")
+                return
+
+            from langchain_core.messages import HumanMessage, AIMessage
+            from aviatrade.agent.agent import AgentState
+
+            # Add user message to history
+            self._agent_messages.append(HumanMessage(content=user_input))
+
+            initial_state = AgentState(
+                messages=self._agent_messages.copy(),
+                max_reflection_iterations=3,
+                reflection_iterations=0
+            )
+
+            with redirect_output_to_tui(log_to_tui):
+                if worker.is_cancelled:
+                    return
+                final_state = self._agent_graph.invoke(initial_state)
+
+            if worker.is_cancelled:
+                return
+
+            # Find and display the last AI message
+            for msg in reversed(final_state["messages"]):
+                if isinstance(msg, AIMessage) and msg.content:
+                    self._agent_messages.append(msg)
+                    self.call_from_thread(
+                        self._log, f"[bold green]Agent:[/bold green] {msg.content}"
+                    )
+                    break
+
+            self.call_from_thread(self._set_status, "success", "Agent ready")
+
+        except Exception as e:
+            self.call_from_thread(self._log_error, f"Agent error: {e}")
+            self.call_from_thread(self._set_status, "error", str(e))
+        finally:
+            self.call_from_thread(self._reset_buttons)

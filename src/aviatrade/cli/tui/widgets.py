@@ -5,8 +5,11 @@ from typing import Any
 
 import plotext as plt
 from rich.text import Text
+from textual import on
+from textual.containers import Vertical
+from textual.message import Message
 from textual.reactive import reactive
-from textual.widgets import RichLog, Static
+from textual.widgets import Button, Input, Label, RichLog, Static
 from textual_plotext import PlotextPlot
 
 
@@ -205,3 +208,45 @@ class ChartPanel(PlotextPlot):
         self.plt.vline(median_price, color="green")
 
         self.refresh()
+
+
+class AgentPanel(Vertical):
+    """Panel for AI Agent interaction."""
+
+    class AgentSubmit(Message):
+        """Message sent when user submits agent request."""
+
+        def __init__(self, message: str) -> None:
+            self.message = message
+            super().__init__()
+
+    def compose(self):
+        """Create child widgets."""
+        yield Label("AI Agent Input", id="agent-title", classes="form-label")
+        yield Input(
+            placeholder="Ask about flights (e.g., 'Get prices from MOW to LED for 2025-06-15')",
+            id="agent-input",
+        )
+        yield Button("Send", id="agent-send-btn", variant="success")
+        yield Label(
+            "[dim]Press Enter or click Send to submit[/dim]",
+            id="agent-hint",
+        )
+
+    @on(Input.Submitted, "#agent-input")
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        """Handle Enter key in input."""
+        self._submit_message()
+
+    @on(Button.Pressed, "#agent-send-btn")
+    def on_send_pressed(self, event: Button.Pressed) -> None:
+        """Handle Send button click."""
+        self._submit_message()
+
+    def _submit_message(self) -> None:
+        """Submit the agent message."""
+        agent_input = self.query_one("#agent-input", Input)
+        message = agent_input.value.strip()
+        if message:
+            self.post_message(self.AgentSubmit(message))
+            agent_input.value = ""

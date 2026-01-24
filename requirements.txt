@@ -7,3 +7,8 @@ pandas>=2.0
 python-dotenv>=1.0
 textual>=0.50.0
 textual-plotext>=0.2.0
+langchain
+langchain-community
+langchain-openai
+langgraph
+dotenv
