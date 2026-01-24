@@ -126,3 +126,30 @@ Select {
 .status-warning {
     color: $warning;
 }
+
+/* Agent panel */
+#agent-panel {
+    margin-top: 1;
+    padding: 1;
+    border: solid $success;
+    height: auto;
+}
+
+#agent-title {
+    color: $success;
+    text-style: bold;
+    margin-top: 0;
+}
+
+#agent-input {
+    margin-bottom: 1;
+}
+
+#agent-send-btn {
+    width: 100%;
+}
+
+#agent-hint {
+    text-align: center;
+    margin-top: 1;
+}
