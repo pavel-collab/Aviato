@@ -627,6 +627,7 @@ class AviaTradeApp(App):
             return True
 
         api_key = os.getenv("OPENROUTER_API_KEY")
+        model_name = os.getenv("MODEL_NAME", "openai/gpt-4o-mini")
         if not api_key:
             self._log_error("OPENROUTER_API_KEY not set in environment")
             self._log("Set it in your .env file or export OPENROUTER_API_KEY=your_key")
@@ -634,8 +635,8 @@ class AviaTradeApp(App):
 
         try:
             from aviatrade.agent.agent import AgentFactory
-            self._agent_graph = AgentFactory.build_agent(api_key=api_key)
-            self._log_success("AI Agent initialized successfully")
+            self._agent_graph = AgentFactory.build_agent(model_name=model_name, api_key=api_key)
+            self._log_success(f"AI Agent initialized successfully (model: {model_name})")
             return True
         except Exception as e:
             self._log_error(f"Failed to initialize agent: {e}")

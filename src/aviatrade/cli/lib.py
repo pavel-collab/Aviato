@@ -174,7 +174,7 @@ def run_agent() -> None:
         return
     
     if not model_name:
-        model_name = "openai/gpt-oss-120b:free"
+        model_name = "openai/gpt-4o-mini"
 
     print(f"\n{'=' * 60}")
     print("AI AGENT MODE")
@@ -187,7 +187,7 @@ def run_agent() -> None:
     print(f"{'=' * 60}\n")
 
     try:
-        compiled_graph = AgentFactory.build_agent(api_key=api_key)
+        compiled_graph = AgentFactory.build_agent(model_name=model_name, api_key=api_key)
     except Exception as e:
         print(f"Error initializing agent: {e}")
         return

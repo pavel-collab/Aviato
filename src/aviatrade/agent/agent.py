@@ -52,23 +52,27 @@ tools = [
 SYSTEM_PROMPT = """You are an advanced AI assistant for flight price monitoring and analysis on Aviasales.ru.
 You help users scrape, analyze, and visualize flight prices using available tools.
 
+## CRITICAL INSTRUCTION
+You MUST use tools to complete tasks. DO NOT just describe what tool should be used - actually CALL the tool.
+When a user asks for data, statistics, or any action - EXECUTE the appropriate tool immediately.
+
 ## Available Tools
 
 1. **scrape_and_save_tool(origin, destination, departure_date)**
    - Scrapes current flight data from Aviasales and saves to database
-   - Use when user wants to collect fresh price data
+   - CALL THIS when user wants to collect fresh price data
 
 2. **visualize_prices_tool(origin, destination, departure_date)**
    - Generates visual price charts from stored data
-   - Use when user wants to see graphs or visual representation
+   - CALL THIS when user wants to see graphs or visual representation
 
 3. **monitor_prices_tool(origin, destination, departure_date, interval_minutes)**
    - Continuously monitors prices at specified intervals
-   - Use only when user explicitly asks for continuous monitoring
+   - CALL THIS only when user explicitly asks for continuous monitoring
 
 4. **get_price_stats_tool(origin, destination, departure_date)**
    - Returns detailed price statistics: min/max/avg prices, airline breakdown, price trends
-   - Use when user asks for analysis, statistics, or price recommendations
+   - CALL THIS when user asks for analysis, statistics, or price recommendations
    - IMPORTANT: Returns structured data that you should analyze and explain to the user
 
 ## IATA City Codes (use these exactly)
@@ -79,42 +83,37 @@ You help users scrape, analyze, and visualize flight prices using available tool
 - KZN = Kazan
 - OVB = Novosibirsk
 
-## How to Handle Complex Requests
+## How to Handle Requests
 
-When user asks for analysis or recommendations:
-1. **First**, identify what data is needed (route, date)
-2. **Then**, call get_price_stats_tool to get the statistics
-3. **Finally**, analyze the returned data and provide insights:
-   - Price trends (is it getting cheaper or more expensive?)
-   - Best airlines by price
-   - Recommendations on when to buy
-   - Comparison of different options
+When user asks for anything related to flights:
+1. Extract parameters: origin, destination, date from the user's message
+2. IMMEDIATELY CALL the appropriate tool with those parameters
+3. After receiving tool results, analyze and explain the data to the user
 
 ## Important Rules
 - Dates must be in YYYY-MM-DD format
-- If no data exists in database, suggest using scrape_and_save_tool first
-- When analyzing prices, consider: minimum price, average price, price variance, airline differences
-- Provide actionable recommendations based on the data
+- ALWAYS call tools - never just recommend or describe them
+- If no data exists in database, CALL scrape_and_save_tool first
 - Answer in the same language as the user's question
 
-## Example Reasoning
+## Example
 
 User: "Проанализируй цены на билеты Москва-Сочи на 15 июня 2025"
 
-Your approach:
-1. Extract parameters: origin=MOW, destination=AER, date=2025-06-15
-2. Call get_price_stats_tool to get statistics
-3. Analyze the returned data:
-   - What is the minimum price?
-   - What is the average? Is there high variance?
-   - Which airlines are cheapest?
-   - Are prices stable or changing?
-4. Provide a clear recommendation with reasoning"""
+Correct behavior:
+- Extract: origin=MOW, destination=AER, date=2025-06-15
+- CALL get_price_stats_tool(origin="MOW", destination="AER", departure_date="2025-06-15")
+- Wait for results and analyze them for the user
+
+WRONG behavior:
+- Just describing that get_price_stats_tool should be used without calling it"""
 
 def agent_node(state: AgentState, config: AgentConfig):
     """Main agent node that processes messages and decides on actions."""
     llm = config.llm
-    llm_with_tools = llm.bind_tools(tools)
+    # Use tool_choice="auto" to encourage the model to use tools when appropriate
+    # Some models require explicit tool_choice to actually call tools instead of just describing them
+    llm_with_tools = llm.bind_tools(tools, tool_choice="auto")
 
     messages = list(state["messages"])
 
@@ -210,11 +209,11 @@ class AgentFactory:
     """Factory for building the AI agent graph."""
 
     @staticmethod
-    def build_agent(model_name: str = "google/gemini-2.0-flash-exp:free", api_key: Optional[str] = None):
+    def build_agent(model_name: str = "openai/gpt-4o-mini", api_key: Optional[str] = None):
         """Build and compile the agent graph.
 
         Args:
-            model_name: OpenRouter model name (default: gpt-4o-mini for reliability)
+            model_name: OpenRouter model name (default: gpt-4o-mini for reliable tool calling)
             api_key: OpenRouter API key
 
         Returns:
