@@ -342,7 +342,7 @@ Recommendation: Use scrape_and_save_tool first to collect flight data."""
     connecting_avg = connecting_flights["price"].mean() if len(connecting_flights) > 0 else None
 
     # Time-based trend (if multiple scrape sessions)
-    df["scraped_bin"] = df["scraped_at"].dt.floor("1H")
+    df["scraped_bin"] = df["scraped_at"].dt.floor("1h")
     time_trend = df.groupby("scraped_bin")["price"].min().reset_index()
 
     trend_direction = "stable"
