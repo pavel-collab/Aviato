@@ -25,7 +25,11 @@ class FlightPrice(Base):
     price = Column(Float, nullable=False)
     currency = Column(String(10), default="RUB")
     stops = Column(Integer, default=0)
-    scraped_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    # scraped_at входит в первичный ключ: TimescaleDB требует, чтобы колонка
+    # партиционирования гипертаблицы была частью PK / любого UNIQUE-ограничения.
+    scraped_at = Column(
+        DateTime, primary_key=True, default=datetime.utcnow, nullable=False, index=True
+    )
 
     def __repr__(self) -> str:
         return (

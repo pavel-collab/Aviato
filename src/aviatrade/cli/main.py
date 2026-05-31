@@ -3,10 +3,9 @@
 import argparse
 from datetime import datetime
 
+from aviatrade.cli.lib import monitor_prices, run_agent, scrape_and_save, visualize_prices
 from aviatrade.db import Database
 from aviatrade.visualization import FlightPriceVisualizer
-
-from aviatrade.cli.lib import scrape_and_save, visualize_prices, monitor_prices, run_agent
 
 
 def main() -> None:
@@ -45,9 +44,7 @@ Popular IATA codes for Russian cities:
         action="store_true",
         help="Launch interactive TUI instead of CLI",
     )
-    parser.add_argument(
-        "--origin", required=False, help="Origin city IATA code (e.g.: MOW)"
-    )
+    parser.add_argument("--origin", required=False, help="Origin city IATA code (e.g.: MOW)")
     parser.add_argument(
         "--destination", required=False, help="Destination city IATA code (e.g.: LED)"
     )
@@ -83,7 +80,9 @@ Popular IATA codes for Russian cities:
 
     # Check required arguments for other CLI modes
     if not all([args.origin, args.destination, args.date]):
-        parser.error("--origin, --destination, and --date are required (or use --tui for interactive mode, or --action agent)")
+        parser.error(
+            "--origin, --destination, and --date are required (or use --tui for interactive mode, or --action agent)"
+        )
 
     # Validate date
     try:
@@ -115,9 +114,7 @@ Popular IATA codes for Russian cities:
     elif args.action == "visualize":
         visualize_prices(args.origin, args.destination, args.date, db, visualizer)
     elif args.action == "monitor":
-        monitor_prices(
-            args.origin, args.destination, args.date, db, args.interval
-        )
+        monitor_prices(args.origin, args.destination, args.date, db, args.interval)
     elif args.action == "both":
         saved = scrape_and_save(args.origin, args.destination, args.date, db)
         if saved > 0:

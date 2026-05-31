@@ -3,7 +3,6 @@
 from datetime import datetime
 from typing import Any
 
-import plotext as plt
 from rich.text import Text
 from textual import on
 from textual.containers import Vertical

@@ -3,14 +3,12 @@ import traceback
 import uuid
 from datetime import datetime
 
-from aviatrade.scraper import AviasalesScraper
 from aviatrade.db import Database
+from aviatrade.scraper import AviasalesScraper
 from aviatrade.visualization import FlightPriceVisualizer
 
 
-def scrape_and_save(
-    origin: str, destination: str, departure_date: str, db: Database
-) -> int:
+def scrape_and_save(origin: str, destination: str, departure_date: str, db: Database) -> int:
     """Scrape flights and save to database.
 
     Args:
@@ -140,9 +138,7 @@ def monitor_prices(
 
     try:
         while True:
-            print(
-                f"\nIteration #{iteration} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            )
+            print(f"\nIteration #{iteration} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
             saved_count = scrape_and_save(origin, destination, departure_date, db)
             if saved_count > 0:
@@ -160,11 +156,13 @@ def monitor_prices(
 def run_agent() -> None:
     """Run the AI agent in interactive mode."""
     import os
-    from langchain_core.messages import HumanMessage, AIMessage
+
+    from langchain_core.messages import AIMessage, HumanMessage
 
     # Lazy import to avoid loading agent dependencies unless needed
-    from aviatrade.agent.agent import AgentFactory, AgentState
+    from aviatrade.agent.agent import AgentFactory
 
+    # TODO: get from config
     api_key = os.getenv("OPENROUTER_API_KEY")
     model_name = os.getenv("MODEL_NAME")
 
@@ -172,10 +170,11 @@ def run_agent() -> None:
         print("Error: OPENROUTER_API_KEY not set in environment")
         print("   Set it in your .env file or export OPENROUTER_API_KEY=your_key")
         return
-    
+
     if not model_name:
         model_name = "openai/gpt-4o-mini"
 
+    # TODO: remove prints and add logs
     print(f"\n{'=' * 60}")
     print("AI AGENT MODE")
     print("Available commands:")
@@ -199,19 +198,17 @@ def run_agent() -> None:
             if not user_input:
                 continue
 
-            if user_input.lower() in ('exit', 'quit'):
+            if user_input.lower() in ("exit", "quit"):
                 print("Exiting agent mode")
                 break
 
-            initial_state = AgentState(
-                messages=[HumanMessage(content=user_input)],
-                max_reflection_iterations=3,
-                reflection_iterations=0
+            final_state = compiled_graph.invoke(
+                {"messages": [HumanMessage(content=user_input)]}
             )
 
-            final_state = compiled_graph.invoke(initial_state)
-
-            print(f"-- DEBUG --\n\tEnd of the agent work\n\tAgent message history len: {len(final_state['messages'])}")
+            print(
+                f"-- DEBUG --\n\tEnd of the agent work\n\tAgent message history len: {len(final_state['messages'])}"
+            )
 
             # Print the last AI message as response
             for msg in reversed(final_state["messages"]):

@@ -1,53 +1,14 @@
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
+from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import ToolNode
-from langgraph.graph import START, END, StateGraph, MessagesState
-from typing import Optional
 
 from aviatrade.agent.tool_wrappers import (
+    get_price_stats_tool,
+    monitor_prices_tool,
     scrape_and_save_tool,
     visualize_prices_tool,
-    monitor_prices_tool,
-    get_price_stats_tool
 )
 
-class AgentConfig:
-    def __init__(self, model_name: str, api_key: str):
-            try:
-                    self.llm = ChatOpenAI(
-                            model=model_name,
-                            api_key=api_key,
-                            base_url="https://openrouter.ai/api/v1", # using OpenRouter portal
-                            temperature=0.0 # use temperature=0 for max determinate output
-                    )
-                    
-                    self.supervisor = ChatOpenAI(
-                            model=model_name,
-                            api_key=api_key,
-                            base_url="https://openrouter.ai/api/v1", # using OpenRouter portal
-                            temperature=0.0 # use temperature=0 for max determinate output
-                    )
-            except Exception as ex:
-                    print(f"-- ERROR!!! --\n{ex}")
-                
-                
-class AgentState(MessagesState):
-    '''
-    Наследуем состояние агента из MessageState, которое автоматически содержит историб сообщений
-    и функции для работы с ним.
-    '''
-    
-    # дополнительно добавим максимальное количество итераций рефлексии и счетчик итераций
-    max_reflection_iterations: int = 3
-    reflection_iterations: int = 0
-    need_reflection: bool = False
-   
-tools = [
-        scrape_and_save_tool,
-        visualize_prices_tool,
-        monitor_prices_tool,
-        get_price_stats_tool
-]
+tools = [scrape_and_save_tool, visualize_prices_tool, monitor_prices_tool, get_price_stats_tool]
 
 SYSTEM_PROMPT = """You are an advanced AI assistant for flight price monitoring and analysis on Aviasales.ru.
 You help users scrape, analyze, and visualize flight prices using available tools.
@@ -108,162 +69,29 @@ Correct behavior:
 WRONG behavior:
 - Just describing that get_price_stats_tool should be used without calling it"""
 
-def agent_node(state: AgentState, config: AgentConfig):
-    print("-- DEBUG --\n\tEnter to the agent node.")
-
-    """Main agent node that processes messages and decides on actions."""
-    llm = config.llm
-    # Use tool_choice="auto" to encourage the model to use tools when appropriate
-    # Some models require explicit tool_choice to actually call tools instead of just describing them
-    llm_with_tools = llm.bind_tools(tools, tool_choice="auto")
-
-    messages = list(state["messages"])
-
-    # Add system prompt if not already present
-    if not any(isinstance(m, SystemMessage) for m in messages):
-        messages = [SystemMessage(content=SYSTEM_PROMPT)] + messages
-
-    # Invoke the LLM
-    response = llm_with_tools.invoke(messages)
-
-    # Check if we made tool calls (for tracking iterations)
-    made_tool_calls = bool(response.tool_calls)
-
-    return {
-        "messages": [response],
-        "need_reflection": made_tool_calls,
-        "reflection_iterations": state.get("reflection_iterations", 0) + (1 if made_tool_calls else 0)
-    }
-
-
-def analysis_node(state: AgentState, config: AgentConfig):
-    """Analysis node that interprets tool results and provides insights.
-
-    This node is called after tools have been executed to help the agent
-    synthesize the results into a coherent analysis for the user.
-    """
-    print("-- DEBUG --\n\tEnter to the analysis node")
-
-    llm = config.llm
-    messages = list(state["messages"])
-
-    # Find the last tool message to understand what data we have
-    tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
-
-    if not tool_messages:
-        # No tool results to analyze, skip
-        return {"messages": []}
-
-    last_tool_result = tool_messages[-1].content
-
-    # Add analysis guidance if we have substantial data
-    if len(last_tool_result) > 500:  # Likely contains statistics
-        analysis_prompt = HumanMessage(content="""Based on the data above, please provide:
-1. A clear summary of the key findings
-2. Specific recommendations for the user
-3. Answer in the same language as the original user question
-
-Be concise but insightful. Focus on actionable advice.""")
-
-        messages.append(analysis_prompt)
-
-        # Get analysis from LLM (without tools, pure analysis)
-        response = llm.invoke(messages)
-
-        return {
-            "messages": [response],
-            "need_reflection": False
-        }
-
-    return {"messages": []}
-
-
-def router_node(state: AgentState):
-    """Route to appropriate next node based on current state."""
-    messages = state["messages"]
-
-    print("-- DEBUG --\n\tEnter to the router node")
-
-    if not messages:
-        return "end"
-
-    last_message = messages[-1]
-    iteration_count = state.get("reflection_iterations", 0)
-    max_iterations = state.get("max_reflection_iterations", 3)
-
-    # Safety limit on iterations
-    if iteration_count >= max_iterations:
-        print(f"-- DEBUG: Max iterations ({max_iterations}) reached, ending --")
-        return "end"
-
-    # If last message is AI with tool calls, execute tools
-    if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        return "tools"
-
-    # If last message is a tool result, go back to agent for analysis
-    if isinstance(last_message, ToolMessage):
-        return "agent"
-
-    # AI message without tool calls = final answer
-    if isinstance(last_message, AIMessage) and not last_message.tool_calls:
-        return "end"
-
-    return "end"
-        
 
 class AgentFactory:
     """Factory for building the AI agent graph."""
 
     @staticmethod
-    def build_agent(model_name: str = "openai/gpt-4o-mini", api_key: Optional[str] = None):
-        """Build and compile the agent graph.
-
-        Args:
-            model_name: OpenRouter model name (default: gpt-4o-mini for reliable tool calling)
-            api_key: OpenRouter API key
-
-        Returns:
-            Compiled LangGraph agent ready for invocation
-        """
-        agent_config = AgentConfig(model_name=model_name, api_key=api_key)
-
-        graph = StateGraph(AgentState)
-
-        # Add nodes
-        graph.add_node("agent", lambda state: agent_node(state, agent_config))
-        graph.add_node("tools", ToolNode(tools))
-
-        # Define edges
-        # START -> agent: Begin with the agent
-        graph.add_edge(START, "agent")
-
-        # agent -> router: Decide what to do next
-        graph.add_conditional_edges(
-            "agent",
-            router_node,
-            {
-                "tools": "tools",  # If tool calls, execute them
-                "agent": "agent",  # Continue processing (after tool results)
-                "end": END         # No more actions, end
-            }
+    def build_agent(model_name: str = "openai/gpt-4o-mini", api_key: str | None = None):
+        llm = ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",  # using OpenRouter portal
+            temperature=0.0,  # use temperature=0 for max determinate output
         )
 
-        # tools -> router: After tools, check what to do
-        graph.add_conditional_edges(
-            "tools",
-            router_node,
-            {
-                "agent": "agent",  # Go back to agent to analyze results
-                "tools": "tools",  # More tools (rare)
-                "end": END         # Done
-            }
+        agent = create_agent(
+            model=llm,
+            system_prompt=SYSTEM_PROMPT,
+            tools=tools,
         )
 
-        compiled_graph = graph.compile()
-        return compiled_graph
+        return agent
 
     @staticmethod
     def draw_compiled_agent_schema(compiled_graph) -> None:
         """Draw and save the agent graph schema to a PNG file."""
-        with open('agent_graph_schema.png', 'wb') as f:
+        with open("agent_graph_schema.png", "wb") as f:
             f.write(compiled_graph.get_graph().draw_mermaid_png())

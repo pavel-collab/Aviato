@@ -3,7 +3,7 @@
 from typing import Any
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from aviatrade.core.config import config
 from aviatrade.db.models import Base, FlightPrice
