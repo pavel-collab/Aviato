@@ -4,40 +4,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AviaTrade is a Python flight price monitoring system for Aviasales.ru. It scrapes flight prices, stores them in PostgreSQL, and generates statistical visualizations for price trend analysis.
+AviaTrade is a Python flight price monitoring system for Aviasales.ru. It scrapes flight prices, stores them in TimescaleDB (PostgreSQL + time-series extension), and generates statistical visualizations for price trend analysis. It also includes an AI agent (LangChain `create_agent`) that exposes scraping/visualization/stats as tools.
 
 ## Commands
 
 ### Database Setup
 ```bash
-docker-compose up -d  # Start PostgreSQL container
+docker-compose up -d  # Start the TimescaleDB container
 ```
 
-### Installation
-```bash
-# Install in development mode
-pip install -e .
+The container runs TimescaleDB. On first start (empty volume) `initdb/01-init-timescaledb.sql`
+runs automatically: it creates the `flight_prices` hypertable, daily chunks, and a
+compression policy. To re-run it, reset the volume: `docker-compose down -v && docker-compose up -d`.
 
-# Or install dependencies only
-pip install -r requirements.txt
+### Installation
+The project is managed with `uv` (there is no `requirements.txt`):
+```bash
+# Create the environment and install all dependencies
+uv sync
+
+# Include dev tools (pytest, mypy, ruff)
+uv sync --extra dev
 ```
 
 ### Running the Application
 ```bash
-# Using the installed command (after pip install -e .)
-aviatrade --origin MOW --destination LED --date 2025-12-15 --action scrape
+# Run via uv (no manual activation needed)
+uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action scrape
 
 # Or using the run.py entry point (for development)
-python run.py --origin MOW --destination LED --date 2025-12-15 --action scrape
+uv run python run.py --origin MOW --destination LED --date 2025-12-15 --action scrape
 
 # Visualize collected data
-python run.py --origin MOW --destination LED --date 2025-12-15 --action visualize
+uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action visualize
 
 # Continuous monitoring (interval in minutes)
-python run.py --origin MOW --destination LED --date 2025-12-15 --action monitor --interval 30
+uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action monitor --interval 30
 
 # Scrape and visualize together
-python run.py --origin MOW --destination LED --date 2025-12-15 --action both
+uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action both
+
+# Interactive AI agent (requires OPENROUTER_API_KEY)
+uv run aviatrade --action agent
+
+# Interactive TUI
+uv run aviatrade --tui
 ```
 
 ## Project Structure
@@ -53,6 +64,10 @@ aviatrade/
 │       ├── core/               # Core configuration
 │       │   ├── __init__.py
 │       │   └── config.py       # Environment configuration
+│       ├── agent/              # AI agent (LangChain create_agent)
+│       │   ├── __init__.py
+│       │   ├── agent.py        # AgentFactory.build_agent + system prompt
+│       │   └── tool_wrappers.py # Scrape/visualize/monitor/stats tools
 │       ├── db/                 # Database layer
 │       │   ├── __init__.py
 │       │   ├── models.py       # SQLAlchemy ORM models
@@ -63,12 +78,13 @@ aviatrade/
 │       └── visualization/      # Data visualization
 │           ├── __init__.py
 │           └── visualizer.py   # Chart generation
+├── initdb/                     # TimescaleDB init scripts (run on first DB start)
+│   └── 01-init-timescaledb.sql
 ├── configs/
 │   └── .env.example            # Environment variables template
 ├── charts/                     # Output directory for generated charts
-├── docker-compose.yml          # PostgreSQL container configuration
-├── pyproject.toml              # Modern Python packaging configuration
-├── requirements.txt            # Dependencies
+├── docker-compose.yml          # TimescaleDB container configuration
+├── pyproject.toml              # Project metadata + dependencies (uv)
 ├── run.py                      # Development entry point
 ├── README.md
 └── CLAUDE.md
@@ -81,11 +97,15 @@ aviatrade/
 cli/main.py (CLI/Orchestration)
     → scraper/aviasales.py (Botasaurus browser)
     → db/database.py + db/models.py (SQLAlchemy ORM)
-    → PostgreSQL
+    → TimescaleDB (PostgreSQL hypertable)
 
 cli/main.py
     → visualization/visualizer.py (matplotlib/seaborn)
     → /charts/*.png
+
+cli/lib.py run_agent / tui
+    → agent/agent.py (LangChain create_agent)
+    → agent/tool_wrappers.py (wraps cli/lib.py functions as tools)
 ```
 
 ### Key Components
@@ -95,16 +115,19 @@ cli/main.py
 - **db/database.py**: `Database` class for session management and CRUD operations
 - **scraper/aviasales.py**: `AviasalesScraper` uses Botasaurus browser automation with multi-selector CSS approach
 - **visualization/visualizer.py**: `FlightPriceVisualizer` generates 4-panel analysis charts
-- **cli/main.py**: CLI entry point with four modes: scrape, visualize, monitor, both
+- **cli/main.py**: CLI entry point with modes: scrape, visualize, monitor, both, agent (plus `--tui`)
+- **agent/agent.py**: `AgentFactory.build_agent` builds a LangChain `create_agent` ReAct agent (OpenRouter via `ChatOpenAI`); invoke with `{"messages": [...]}`
 
 ### Tech Stack
 - **Botasaurus**: Selenium-like browser automation for web scraping
 - **SQLAlchemy + psycopg2**: PostgreSQL ORM
 - **matplotlib/seaborn/pandas**: Data visualization and analysis
-- **Docker Compose**: PostgreSQL 16 container
+- **LangChain (`create_agent`) + langchain-openai**: AI agent over OpenRouter
+- **Docker Compose**: TimescaleDB container (PostgreSQL 16 + time-series extension)
+- **uv**: dependency and environment management
 
 ### Database Schema
-The `flight_prices` table stores: origin, destination, departure_date, airline, flight_number, departure_time, arrival_time, duration, price, currency, stops, scraped_at. Indexes exist on origin, destination, departure_date, and scraped_at.
+The `flight_prices` table stores: origin, destination, departure_date, airline, flight_number, departure_time, arrival_time, duration, price, currency, stops, scraped_at. Indexes exist on origin, destination, departure_date, and scraped_at. It is a TimescaleDB **hypertable** partitioned on `scraped_at` (daily chunks); `scraped_at` is part of the composite primary key `(id, scraped_at)` because the partition column must be in any PK/unique constraint.
 
 ## Development Notes
 
@@ -112,7 +135,8 @@ The `flight_prices` table stores: origin, destination, departure_date, airline, 
 - Price extraction uses regex patterns for Russian ruble symbols
 - Results are limited to first 20 flights per scrape
 - Charts are saved to `/charts` directory with timestamps
-- UUID-based IDs are used for TimescaleDB compatibility
+- `flight_prices` is a TimescaleDB hypertable; chunking and compression are set up automatically by `initdb/01-init-timescaledb.sql` on first DB start
+- The agent requires `OPENROUTER_API_KEY` (and optional `MODEL_NAME`, default `openai/gpt-4o-mini`) in the environment
 - Configuration supports `.env` in both project root and `configs/` directory
 
 ## Common IATA Codes

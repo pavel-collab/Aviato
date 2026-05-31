@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # TimescaleDB — расширение PostgreSQL для временных рядов (на базе PG 16).
+    image: timescale/timescaledb:latest-pg16
     container_name: flight_prices_db
 
     environment:
@@ -15,6 +16,9 @@ services:
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Init-скрипты выполняются автоматически при первом старте (пустой volume):
+      # создаётся гипертаблица, настраиваются чанки (time buckets) и сжатие.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U flight_user -d flight_prices"]

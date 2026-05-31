@@ -1,12 +1,12 @@
-from langchain.tools import tool
-import pandas as pd
 import re
 from datetime import datetime
 
-from aviatrade.cli.lib import scrape_and_save, visualize_prices, monitor_prices
+import pandas as pd
+from langchain.tools import tool
+
+from aviatrade.cli.lib import monitor_prices, scrape_and_save, visualize_prices
 from aviatrade.db import Database
 from aviatrade.visualization import FlightPriceVisualizer
-
 
 # Valid IATA codes for Russian cities
 VALID_IATA_CODES = {
@@ -44,7 +44,7 @@ def validate_date(date_str: str) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, message)
     """
-    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
         return False, f"Date must be in YYYY-MM-DD format, got: '{date_str}'"
 
     try:
@@ -68,7 +68,10 @@ def get_database() -> tuple[Database | None, str]:
         db.create_tables()
         return db, ""
     except Exception as e:
-        return None, f"Database connection error: {e}. Make sure PostgreSQL is running (docker-compose up -d)"
+        return (
+            None,
+            f"Database connection error: {e}. Make sure PostgreSQL is running (docker-compose up -d)",
+        )
 
 
 @tool
@@ -130,6 +133,7 @@ Possible reasons:
     except Exception as e:
         return f"ERROR: Failed to scrape flights: {e}"
 
+
 @tool
 def visualize_prices_tool(origin: str, destination: str, departure_date: str) -> str:
     """Generate visual price charts from stored flight data.
@@ -179,10 +183,7 @@ Charts have been saved to the /charts directory."""
 
 @tool
 def monitor_prices_tool(
-    origin: str,
-    destination: str,
-    departure_date: str,
-    interval_minutes: int = 60
+    origin: str, destination: str, departure_date: str, interval_minutes: int = 60
 ) -> str:
     """Start continuous price monitoring at specified intervals.
 
@@ -236,12 +237,9 @@ Interval: {interval_minutes} minutes"""
     except Exception as e:
         return f"ERROR: Monitoring failed: {e}"
 
+
 @tool
-def get_price_stats_tool(
-    origin: str,
-    destination: str,
-    departure_date: str
-) -> str:
+def get_price_stats_tool(origin: str, destination: str, departure_date: str) -> str:
     """Get detailed price statistics for flight route analysis.
 
     Use this tool to get comprehensive price statistics including:
@@ -274,7 +272,7 @@ def get_price_stats_tool(
         return f"ERROR: Invalid destination code. {msg}"
 
     # For stats, we allow past dates (historical data)
-    if not re.match(r'^\d{4}-\d{2}-\d{2}$', departure_date):
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", departure_date):
         return f"ERROR: Date must be in YYYY-MM-DD format, got: '{departure_date}'"
 
     db, error = get_database()
@@ -325,14 +323,14 @@ Recommendation: Use scrape_and_save_tool first to collect flight data."""
     price_variance_pct = (std_price / avg_price * 100) if avg_price > 0 else 0
 
     # Airline analysis
-    airline_stats = df.groupby("airline").agg({
-        "price": ["min", "mean", "max", "count"]
-    }).round(0)
+    airline_stats = df.groupby("airline").agg({"price": ["min", "mean", "max", "count"]}).round(0)
     airline_stats.columns = ["min_price", "avg_price", "max_price", "flight_count"]
     airline_stats = airline_stats.sort_values("min_price").head(10)
 
     # Best deals (cheapest flights)
-    best_deals = df.nsmallest(5, "price")[["airline", "price", "departure_time", "stops", "duration"]]
+    best_deals = df.nsmallest(5, "price")[
+        ["airline", "price", "departure_time", "stops", "duration"]
+    ]
 
     # Stops analysis
     direct_flights = df[df["stops"] == 0]
@@ -387,7 +385,7 @@ Data Points: {total_records} flights analyzed
         stops_text = "Direct" if row["stops"] == 0 else f"{row['stops']} stop(s)"
         result += f"\n• {row['price']:,.0f} RUB - {row['airline']} ({stops_text}, {row['departure_time']}, {row['duration']})"
 
-    result += f"""
+    result += """
 
 🏢 PRICE BY AIRLINE (Top 10, sorted by cheapest)
 ───────────────────────────────────────────────────────────────"""
@@ -409,11 +407,11 @@ Data Points: {total_records} flights analyzed
     if direct_avg and connecting_avg:
         savings = direct_avg - connecting_avg
         if savings > 0:
-            result += f"\n• Savings with connection: ~{savings:,.0f} RUB ({savings/direct_avg*100:.0f}% cheaper)"
+            result += f"\n• Savings with connection: ~{savings:,.0f} RUB ({savings / direct_avg * 100:.0f}% cheaper)"
         else:
             result += f"\n• Direct flights are {abs(savings):,.0f} RUB cheaper on average"
 
-    result += f"""
+    result += """
 
 💡 KEY INSIGHTS
 ───────────────────────────────────────────────────────────────"""
@@ -423,7 +421,9 @@ Data Points: {total_records} flights analyzed
     result += f"\n• Best Value Airline: {cheapest_airline} (starting from {min_price:,.0f} RUB)"
 
     if price_variance_pct > 30:
-        result += f"\n• High price variance ({price_variance_pct:.0f}%) - shop around for better deals"
+        result += (
+            f"\n• High price variance ({price_variance_pct:.0f}%) - shop around for better deals"
+        )
     elif price_variance_pct < 15:
         result += f"\n• Low price variance ({price_variance_pct:.0f}%) - prices are consistent across airlines"
 

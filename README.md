@@ -4,18 +4,27 @@ Flight price monitoring system for Aviasales.ru
 
 ## Quick Start
 
-### 1. Start PostgreSQL
+### 1. Start the database (TimescaleDB)
 ```bash
 docker-compose up -d
 ```
 
-### 2. Install dependencies
-```bash
-# Option A: Install as package (recommended)
-pip install -e .
+The container runs **TimescaleDB** (a PostgreSQL extension for time-series data).
+On the first start (empty volume) the script in `initdb/` runs automatically and
+sets everything up: the `flight_prices` hypertable, daily chunks (time buckets),
+and a chunk compression policy. No manual SQL is required for the Docker setup.
 
-# Option B: Install dependencies only
-pip install -r requirements.txt
+> If you recreate the database and want the init script to run again, reset the
+> volume: `docker-compose down -v && docker-compose up -d`.
+
+### 2. Install dependencies
+The project is managed with [uv](https://docs.astral.sh/uv/):
+```bash
+# Create the virtual environment and install all dependencies
+uv sync
+
+# Run commands inside the environment
+uv run aviatrade --tui
 ```
 
 ### 3. Configure environment
@@ -113,7 +122,7 @@ aviatrade --origin MOW --destination LED --date 2025-12-15 --action both
 
 ## Docker Commands
 
-Start PostgreSQL container:
+Start the TimescaleDB container:
 ```bash
 docker-compose up -d
 ```
@@ -144,13 +153,15 @@ aviatrade/
 
 ### Setup development environment
 ```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or: venv\Scripts\activate  # Windows
+# Create the environment and install runtime + dev dependencies
+uv sync --extra dev
 
-# Install in editable mode
-pip install -e .
+# Run a command inside the environment
+uv run aviatrade --tui
+
+# Or activate the environment manually
+source .venv/bin/activate  # Linux/macOS
+# or: .venv\Scripts\activate  # Windows
 ```
 
 ### Running without TUI
@@ -184,6 +195,11 @@ The TUI is built with [Textual](https://textual.textualize.io/) framework:
 Workers run in separate threads to keep the UI responsive during scraping operations.
 
 ### How to set up the Timescale extension for PostgreSQL
+
+> **Note:** with the bundled `docker-compose` setup this is done **automatically** by
+> `initdb/01-init-timescaledb.sql` on first start — you do not need any of the steps
+> below. This section is only for an **external / self-hosted** PostgreSQL where you
+> add the extension to an existing server by hand.
 
 If you're using your PostgreSQL database service not in docker, but as a real hosted servise, you may want to set up an
 addition extension TimescaleDB for time data. This extension allow to separate time data through the separated time chunks, 
@@ -246,10 +262,12 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 Now you're ready to modify your existing table with content and set timescaledb feature.
 
-Before set up the hypertable we need to change the table primary key to time column:
+Before set up the hypertable we need the partitioning column `scraped_at` to be part
+of the primary key (TimescaleDB requires it). The ORM model uses a composite PK
+`(id, scraped_at)`; if your existing table still has `id` as the only key, fix it:
 ```
 ALTER TABLE flight_prices DROP CONSTRAINT flight_prices_pkey;
-flight_prices=# alter table flight_prices add primary key (scraped_at);
+ALTER TABLE flight_prices ADD PRIMARY KEY (id, scraped_at);
 ```
 
 First of all make the content table to gypertable:

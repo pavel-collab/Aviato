@@ -1,6 +1,5 @@
 """Flight price visualization module using matplotlib and seaborn."""
 
-import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -86,9 +85,7 @@ class FlightPriceVisualizer:
             markersize=8,
             color="#2E86AB",
         )
-        axes[0, 0].set_title(
-            "Minimum Price by Collection Time", fontsize=12, fontweight="bold"
-        )
+        axes[0, 0].set_title("Minimum Price by Collection Time", fontsize=12, fontweight="bold")
         axes[0, 0].set_xlabel("Collection Time", fontsize=10)
         axes[0, 0].set_ylabel("Price (RUB)", fontsize=10)
         axes[0, 0].tick_params(axis="x", rotation=45)
@@ -111,9 +108,7 @@ class FlightPriceVisualizer:
 
         if len(df_top) > 0:
             sns.boxplot(data=df_top, y="airline", x="price", ax=axes[0, 1], palette="Set2")
-            axes[0, 1].set_title(
-                "Price Distribution by Airline", fontsize=12, fontweight="bold"
-            )
+            axes[0, 1].set_title("Price Distribution by Airline", fontsize=12, fontweight="bold")
             axes[0, 1].set_xlabel("Price (RUB)", fontsize=10)
             axes[0, 1].set_ylabel("Airline", fontsize=10)
 
@@ -148,14 +143,14 @@ class FlightPriceVisualizer:
             color="red",
             linestyle="--",
             linewidth=2,
-            label=f'Mean: {df["price"].mean():.0f} RUB',
+            label=f"Mean: {df['price'].mean():.0f} RUB",
         )
         axes[1, 1].axvline(
             df["price"].median(),
             color="green",
             linestyle="--",
             linewidth=2,
-            label=f'Median: {df["price"].median():.0f} RUB',
+            label=f"Median: {df['price'].median():.0f} RUB",
         )
         axes[1, 1].set_title("Price Distribution", fontsize=12, fontweight="bold")
         axes[1, 1].set_xlabel("Price (RUB)", fontsize=10)
@@ -214,9 +209,7 @@ class FlightPriceVisualizer:
 
         print("=" * 60 + "\n")
 
-    def get_tui_chart_data(
-        self, flight_prices: list[Any]
-    ) -> dict[str, Any] | None:
+    def get_tui_chart_data(self, flight_prices: list[Any]) -> dict[str, Any] | None:
         """Prepare data for TUI chart display.
 
         Args:
@@ -231,11 +224,13 @@ class FlightPriceVisualizer:
         # Convert to lists for processing
         data = []
         for fp in flight_prices:
-            data.append({
-                "scraped_at": fp.scraped_at,
-                "price": fp.price,
-                "airline": fp.airline if fp.airline else "Unknown",
-            })
+            data.append(
+                {
+                    "scraped_at": fp.scraped_at,
+                    "price": fp.price,
+                    "airline": fp.airline if fp.airline else "Unknown",
+                }
+            )
 
         # Sort by time
         data.sort(key=lambda x: x["scraped_at"])
@@ -265,9 +260,7 @@ class FlightPriceVisualizer:
             )
 
         # Sort airlines by min price
-        airline_stats = dict(
-            sorted(airline_stats.items(), key=lambda x: x[1][0])
-        )
+        airline_stats = dict(sorted(airline_stats.items(), key=lambda x: x[1][0]))
 
         # All prices for histogram
         all_prices = [d["price"] for d in data]

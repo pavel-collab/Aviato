@@ -353,9 +353,7 @@ class AviaTradeApp(App):
                 self.call_from_thread(
                     self._log_success, f"Saved {saved_count} of {len(flights)} flights"
                 )
-                self.call_from_thread(
-                    self._set_status, "success", f"Saved {saved_count} flights"
-                )
+                self.call_from_thread(self._set_status, "success", f"Saved {saved_count} flights")
                 return saved_count
 
         except Exception as e:
@@ -383,15 +381,11 @@ class AviaTradeApp(App):
                     self.call_from_thread(
                         self._log_warning, "No data in database for visualization"
                     )
-                    self.call_from_thread(
-                        self._log, "First collect data with Scrape action"
-                    )
+                    self.call_from_thread(self._log, "First collect data with Scrape action")
                     self.call_from_thread(self._set_status, "warning", "No data found")
                     return
 
-                self.call_from_thread(
-                    self._log, f"Found {len(flight_prices)} records in database"
-                )
+                self.call_from_thread(self._log, f"Found {len(flight_prices)} records in database")
 
                 if worker.is_cancelled:
                     return
@@ -415,12 +409,8 @@ class AviaTradeApp(App):
                 )
 
                 if chart_path:
-                    self.call_from_thread(
-                        self._log_success, f"PNG saved: {Path(chart_path).name}"
-                    )
-                    self.call_from_thread(
-                        self._set_status, "success", "Visualization complete"
-                    )
+                    self.call_from_thread(self._log_success, f"PNG saved: {Path(chart_path).name}")
+                    self.call_from_thread(self._set_status, "success", "Visualization complete")
                 else:
                     self.call_from_thread(self._set_status, "success", "Statistics shown")
 
@@ -451,9 +441,7 @@ class AviaTradeApp(App):
                 self.call_from_thread(
                     self._set_status, "loading", f"Monitor iteration #{iteration}..."
                 )
-                self.call_from_thread(
-                    self._log, f"--- Iteration #{iteration} ---"
-                )
+                self.call_from_thread(self._log, f"--- Iteration #{iteration} ---")
 
                 with redirect_output_to_tui(log_to_tui):
                     try:
@@ -492,9 +480,7 @@ class AviaTradeApp(App):
                                 f"Iteration #{iteration}: no flights found",
                             )
                     except Exception as e:
-                        self.call_from_thread(
-                            self._log_error, f"Iteration #{iteration} error: {e}"
-                        )
+                        self.call_from_thread(self._log_error, f"Iteration #{iteration} error: {e}")
 
                 iteration += 1
 
@@ -509,9 +495,7 @@ class AviaTradeApp(App):
                         break
                     time.sleep(1)
 
-            self.call_from_thread(
-                self._log, f"Monitor stopped after {iteration - 1} iterations"
-            )
+            self.call_from_thread(self._log, f"Monitor stopped after {iteration - 1} iterations")
             self.call_from_thread(self._set_status, "success", "Monitor stopped")
 
         except Exception as e:
@@ -573,7 +557,9 @@ class AviaTradeApp(App):
                 )
 
                 if worker.is_cancelled or saved_count == 0:
-                    self.call_from_thread(self._set_status, "warning", "Scrape complete, no visualization")
+                    self.call_from_thread(
+                        self._set_status, "warning", "Scrape complete, no visualization"
+                    )
                     return
 
                 self.call_from_thread(self._set_status, "loading", "Generating visualization...")
@@ -635,6 +621,7 @@ class AviaTradeApp(App):
 
         try:
             from aviatrade.agent.agent import AgentFactory
+
             self._agent_graph = AgentFactory.build_agent(model_name=model_name, api_key=api_key)
             self._log_success(f"AI Agent initialized successfully (model: {model_name})")
             return True
@@ -673,22 +660,15 @@ class AviaTradeApp(App):
                 self.call_from_thread(self._set_status, "error", "Agent not initialized")
                 return
 
-            from langchain_core.messages import HumanMessage, AIMessage
-            from aviatrade.agent.agent import AgentState
+            from langchain_core.messages import AIMessage, HumanMessage
 
             # Add user message to history
             self._agent_messages.append(HumanMessage(content=user_input))
 
-            initial_state = AgentState(
-                messages=self._agent_messages.copy(),
-                max_reflection_iterations=3,
-                reflection_iterations=0
-            )
-
             with redirect_output_to_tui(log_to_tui):
                 if worker.is_cancelled:
                     return
-                final_state = self._agent_graph.invoke(initial_state)
+                final_state = self._agent_graph.invoke({"messages": self._agent_messages})
 
             if worker.is_cancelled:
                 return

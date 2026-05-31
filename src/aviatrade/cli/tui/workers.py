@@ -1,8 +1,8 @@
 """Worker utilities for AviaTrade TUI."""
 
 import sys
+from collections.abc import Callable
 from contextlib import contextmanager
-from typing import Callable
 
 
 class TUIOutputStream:
