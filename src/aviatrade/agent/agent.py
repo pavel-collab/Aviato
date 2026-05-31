@@ -2,13 +2,26 @@ from langchain.agents import create_agent
 from langchain_openai import ChatOpenAI
 
 from aviatrade.agent.tool_wrappers import (
+    add_to_watchlist_tool,
     get_price_stats_tool,
+    list_watchlist_tool,
     monitor_prices_tool,
+    monitor_watchlist_tool,
+    remove_from_watchlist_tool,
     scrape_and_save_tool,
     visualize_prices_tool,
 )
 
-tools = [scrape_and_save_tool, visualize_prices_tool, monitor_prices_tool, get_price_stats_tool]
+tools = [
+    scrape_and_save_tool,
+    visualize_prices_tool,
+    monitor_prices_tool,
+    get_price_stats_tool,
+    add_to_watchlist_tool,
+    remove_from_watchlist_tool,
+    list_watchlist_tool,
+    monitor_watchlist_tool,
+]
 
 SYSTEM_PROMPT = """You are an advanced AI assistant for flight price monitoring and analysis on Aviasales.ru.
 You help users scrape, analyze, and visualize flight prices using available tools.
@@ -35,6 +48,23 @@ When a user asks for data, statistics, or any action - EXECUTE the appropriate t
    - Returns detailed price statistics: min/max/avg prices, airline breakdown, price trends
    - CALL THIS when user asks for analysis, statistics, or price recommendations
    - IMPORTANT: Returns structured data that you should analyze and explain to the user
+
+5. **add_to_watchlist_tool(origin, destination, departure_date, interval_minutes)**
+   - Adds a route to the multi-direction watchlist for continuous tracking
+   - CALL THIS when user wants to track one or several routes at once
+
+6. **remove_from_watchlist_tool(origin, destination, departure_date)**
+   - Removes a route from the watchlist
+   - CALL THIS when user wants to stop tracking a route
+
+7. **list_watchlist_tool()**
+   - Lists all routes currently on the watchlist
+   - CALL THIS when user asks which routes are being tracked
+
+8. **monitor_watchlist_tool(default_interval_minutes)**
+   - Continuously monitors every route on the watchlist (multi-direction)
+   - CALL THIS only when user explicitly asks to monitor all tracked routes
+   - WARNING: long-running, blocks until stopped
 
 ## IATA City Codes (use these exactly)
 - MOW = Moscow (all airports)

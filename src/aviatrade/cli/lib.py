@@ -153,6 +153,90 @@ def monitor_prices(
         print(f"Total iterations completed: {iteration - 1}")
 
 
+def monitor_watchlist(
+    db: Database,
+    default_interval_minutes: int = 60,
+    pause_between_routes: int = 5,
+) -> None:
+    """Monitor every enabled route in the watchlist.
+
+    The watchlist is re-read at the start of every cycle, so routes added or
+    removed (via CLI, agent, or TUI) are picked up without restarting the
+    monitor. Routes are scraped sequentially to stay gentle on Aviasales and
+    avoid parallel browser sessions.
+
+    Each route is scraped only once its own ``interval_min`` has elapsed since
+    its last scrape; the loop sleeps until the nearest due route. A route with
+    ``interval_min`` unset falls back to ``default_interval_minutes``.
+
+    Args:
+        db: Database instance.
+        default_interval_minutes: Fallback interval for routes without one.
+        pause_between_routes: Seconds to wait between consecutive route scrapes.
+    """
+    print(f"\n{'=' * 60}")
+    print("WATCHLIST MONITORING MODE")
+    print(f"Default interval: {default_interval_minutes} minutes")
+    print(f"{'=' * 60}\n")
+
+    # Tracks the next due monotonic timestamp per route key.
+    next_due: dict[tuple[str, str, str], float] = {}
+    cycle = 1
+
+    try:
+        while True:
+            routes = db.get_watchlist(enabled_only=True)
+
+            if not routes:
+                print("Watchlist is empty. Add routes with --action watch-add.")
+                print(f"Re-checking in {default_interval_minutes} minutes...")
+                time.sleep(default_interval_minutes * 60)
+                continue
+
+            now = time.monotonic()
+            due_routes = []
+            for route in routes:
+                key = (route.origin, route.destination, str(route.departure_date))
+                if next_due.get(key, 0.0) <= now:
+                    due_routes.append(route)
+
+            if due_routes:
+                print(
+                    f"\nCycle #{cycle} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+                    f"- {len(due_routes)} route(s) due"
+                )
+
+                for route in due_routes:
+                    key = (route.origin, route.destination, str(route.departure_date))
+                    interval = route.interval_min or default_interval_minutes
+                    scrape_and_save(
+                        route.origin,
+                        route.destination,
+                        str(route.departure_date),
+                        db,
+                    )
+                    next_due[key] = time.monotonic() + interval * 60
+                    time.sleep(pause_between_routes)
+
+                cycle += 1
+
+            # Sleep until the nearest route becomes due (cap to keep the
+            # watchlist fresh for newly added routes).
+            now = time.monotonic()
+            active_keys = {
+                (r.origin, r.destination, str(r.departure_date)) for r in routes
+            }
+            upcoming = [t for k, t in next_due.items() if k in active_keys and t > now]
+            sleep_seconds = min(upcoming) - now if upcoming else default_interval_minutes * 60
+            sleep_seconds = max(1.0, min(sleep_seconds, default_interval_minutes * 60))
+            print(f"Sleeping {sleep_seconds / 60:.1f} minutes until next due route...")
+            time.sleep(sleep_seconds)
+
+    except KeyboardInterrupt:
+        print("\n\nWatchlist monitoring stopped by user")
+        print(f"Total cycles completed: {cycle - 1}")
+
+
 def run_agent() -> None:
     """Run the AI agent in interactive mode."""
     import os

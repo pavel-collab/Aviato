@@ -2,7 +2,16 @@
 
 from datetime import datetime
 
-from sqlalchemy import Column, Date, DateTime, Float, Integer, String
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -35,4 +44,38 @@ class FlightPrice(Base):
         return (
             f"<FlightPrice(id={self.id}, {self.origin}->{self.destination}, "
             f"{self.departure_date}, {self.price} {self.currency})>"
+        )
+
+
+class Watchlist(Base):
+    """A route tracked for continuous multi-direction price monitoring.
+
+    This is a plain relational table (not a TimescaleDB hypertable): it is a
+    small registry of routes to monitor, not time-series data. Price history
+    itself still lives in ``flight_prices``.
+    """
+
+    __tablename__ = "watchlist"
+    __table_args__ = (
+        UniqueConstraint(
+            "origin", "destination", "departure_date", name="uq_watchlist_route"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    origin = Column(String(100), nullable=False, index=True)
+    destination = Column(String(100), nullable=False, index=True)
+    departure_date = Column(Date, nullable=False, index=True)
+    # Per-route collection interval in minutes; the monitor falls back to a
+    # global default when scheduling.
+    interval_min = Column(Integer, nullable=False, default=60)
+    # Allows pausing a route without losing its collected history.
+    enabled = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self) -> str:
+        state = "on" if self.enabled else "off"
+        return (
+            f"<Watchlist(id={self.id}, {self.origin}->{self.destination}, "
+            f"{self.departure_date}, every {self.interval_min}m, {state})>"
         )

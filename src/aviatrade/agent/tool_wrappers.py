@@ -4,7 +4,12 @@ from datetime import datetime
 import pandas as pd
 from langchain.tools import tool
 
-from aviatrade.cli.lib import monitor_prices, scrape_and_save, visualize_prices
+from aviatrade.cli.lib import (
+    monitor_prices,
+    monitor_watchlist,
+    scrape_and_save,
+    visualize_prices,
+)
 from aviatrade.db import Database
 from aviatrade.visualization import FlightPriceVisualizer
 
@@ -437,3 +442,170 @@ Data Points: {total_records} flights analyzed
 """
 
     return result
+
+
+@tool
+def add_to_watchlist_tool(
+    origin: str, destination: str, departure_date: str, interval_minutes: int = 60
+) -> str:
+    """Add a flight route to the multi-direction monitoring watchlist.
+
+    Use this when the user wants to track several routes at once. Routes on the
+    watchlist are scraped continuously by the watchlist monitor. Adding an
+    existing route updates its interval and re-enables it.
+
+    Args:
+        origin: Origin airport IATA code (e.g., MOW for Moscow)
+        destination: Destination airport IATA code (e.g., AER for Sochi)
+        departure_date: Departure date in YYYY-MM-DD format
+        interval_minutes: Per-route collection interval in minutes (default: 60)
+
+    Returns:
+        Status message indicating success or failure
+    """
+    origin = origin.upper().strip()
+    destination = destination.upper().strip()
+
+    valid, msg = validate_iata_code(origin)
+    if not valid:
+        return f"ERROR: Invalid origin code. {msg}"
+
+    valid, msg = validate_iata_code(destination)
+    if not valid:
+        return f"ERROR: Invalid destination code. {msg}"
+
+    valid, msg = validate_date(departure_date)
+    if not valid:
+        return f"ERROR: {msg}"
+
+    if origin == destination:
+        return "ERROR: Origin and destination cannot be the same."
+
+    if interval_minutes < 1 or interval_minutes > 1440:
+        return "ERROR: Interval must be between 1 and 1440 minutes."
+
+    db, error = get_database()
+    if error:
+        return f"ERROR: {error}"
+
+    try:
+        record = db.add_watch(origin, destination, departure_date, interval_minutes)
+        return (
+            f"SUCCESS: Added {record.origin} -> {record.destination} on "
+            f"{record.departure_date} to the watchlist (every {record.interval_min} min)."
+        )
+    except Exception as e:
+        return f"ERROR: Failed to add route to watchlist: {e}"
+
+
+@tool
+def remove_from_watchlist_tool(
+    origin: str, destination: str, departure_date: str
+) -> str:
+    """Remove a flight route from the multi-direction monitoring watchlist.
+
+    Args:
+        origin: Origin airport IATA code (e.g., MOW for Moscow)
+        destination: Destination airport IATA code (e.g., AER for Sochi)
+        departure_date: Departure date in YYYY-MM-DD format
+
+    Returns:
+        Status message indicating success or failure
+    """
+    origin = origin.upper().strip()
+    destination = destination.upper().strip()
+
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", departure_date):
+        return f"ERROR: Date must be in YYYY-MM-DD format, got: '{departure_date}'"
+
+    db, error = get_database()
+    if error:
+        return f"ERROR: {error}"
+
+    try:
+        removed = db.remove_watch(origin, destination, departure_date)
+        if removed:
+            return (
+                f"SUCCESS: Removed {origin} -> {destination} on "
+                f"{departure_date} from the watchlist."
+            )
+        return (
+            f"WARNING: No watchlist entry found for {origin} -> {destination} "
+            f"on {departure_date}."
+        )
+    except Exception as e:
+        return f"ERROR: Failed to remove route from watchlist: {e}"
+
+
+@tool
+def list_watchlist_tool() -> str:
+    """List all routes on the multi-direction monitoring watchlist.
+
+    Use this when the user asks what routes are currently being tracked.
+
+    Returns:
+        A formatted list of watchlist routes, or a message if it is empty
+    """
+    db, error = get_database()
+    if error:
+        return f"ERROR: {error}"
+
+    try:
+        routes = db.get_watchlist(enabled_only=False)
+    except Exception as e:
+        return f"ERROR: Failed to read watchlist: {e}"
+
+    if not routes:
+        return "The watchlist is empty. Add routes with add_to_watchlist_tool."
+
+    lines = [f"WATCHLIST ({len(routes)} route(s)):"]
+    for r in routes:
+        state = "enabled" if r.enabled else "disabled"
+        lines.append(
+            f"- [{state}] {r.origin} -> {r.destination} on {r.departure_date} "
+            f"(every {r.interval_min} min)"
+        )
+    return "\n".join(lines)
+
+
+@tool
+def monitor_watchlist_tool(default_interval_minutes: int = 60) -> str:
+    """Start continuous monitoring of every route on the watchlist.
+
+    WARNING: This is a long-running operation that blocks until manually
+    stopped. Only use when the user explicitly requests continuous
+    multi-direction monitoring. Routes are scraped sequentially.
+
+    Args:
+        default_interval_minutes: Fallback interval for routes without their own
+
+    Returns:
+        Status message (only returned when monitoring stops)
+    """
+    if default_interval_minutes < 1 or default_interval_minutes > 1440:
+        return "ERROR: Interval must be between 1 and 1440 minutes."
+
+    db, error = get_database()
+    if error:
+        return f"ERROR: {error}"
+
+    try:
+        routes = db.get_watchlist(enabled_only=True)
+    except Exception as e:
+        return f"ERROR: Failed to read watchlist: {e}"
+
+    if not routes:
+        return (
+            "ERROR: The watchlist has no enabled routes. "
+            "Add routes with add_to_watchlist_tool first."
+        )
+
+    try:
+        print(f"Starting watchlist monitoring for {len(routes)} route(s)")
+        print("Press Ctrl+C to stop.")
+        monitor_watchlist(db, default_interval_minutes=default_interval_minutes)
+        return "Watchlist monitoring stopped."
+    except KeyboardInterrupt:
+        return "Watchlist monitoring stopped by user."
+    except Exception as e:
+        return f"ERROR: Watchlist monitoring failed: {e}"

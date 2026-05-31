@@ -40,6 +40,11 @@ aviatrade --tui
 
 # Or use command-line mode
 aviatrade --origin MOW --destination LED --date 2025-12-15 --action scrape
+
+# Track several routes at once (multi-direction watchlist)
+aviatrade --origin MOW --destination LED --date 2025-12-15 --action watch-add --interval 30
+aviatrade --origin MOW --destination AER --date 2025-12-20 --action watch-add
+aviatrade --action monitor-all --interval 60
 ```
 
 ## Interactive TUI
@@ -109,6 +114,80 @@ aviatrade --origin MOW --destination LED --date 2025-12-15 --action monitor --in
 aviatrade --origin MOW --destination LED --date 2025-12-15 --action both
 ```
 
+## Multi-Direction Monitoring (Watchlist)
+
+Instead of monitoring a single route, you can maintain a **watchlist** of routes
+and monitor all of them with one command. The watchlist is stored in the database
+(a plain `watchlist` table, not a hypertable), so it persists across restarts and
+can be managed from the CLI or the AI agent. Price history itself still lives in
+`flight_prices`.
+
+### Add a route to the watchlist
+```bash
+aviatrade --origin MOW --destination LED --date 2025-12-15 --action watch-add --interval 30
+```
+- `--interval` sets the **per-route** collection interval in minutes (default: 60).
+- Adding a route that already exists **updates its interval** and re-enables it
+  (routes are unique by origin + destination + date).
+
+### Show the watchlist
+```bash
+aviatrade --action watch-list
+```
+
+### Remove a route from the watchlist
+```bash
+aviatrade --origin MOW --destination AER --date 2025-12-20 --action watch-remove
+```
+
+### Monitor every route in the watchlist
+```bash
+aviatrade --action monitor-all --interval 60
+```
+Routes are scraped **sequentially** (gentle on Aviasales — no parallel browser
+sessions). Each route is re-scraped only after its own interval elapses; routes
+without one fall back to the `--interval` value. The watchlist is re-read at the
+start of every cycle, so routes you add or remove are picked up **without
+restarting** the monitor.
+
+> Manage the watchlist from the AI agent too: just ask it in natural language,
+> e.g. *"add Moscow–Sochi on 2025-12-20 to tracking, check every 30 minutes"* or
+> *"show the watchlist"*. See the agent tools below.
+
+## AI Agent
+
+AviaTrade includes an interactive AI agent (LangChain `create_agent`, OpenRouter)
+that exposes scraping, visualization, statistics, and watchlist management as
+tools. Talk to it in natural language and it calls the right tool for you.
+
+```bash
+# Requires OPENROUTER_API_KEY in the environment (and optional MODEL_NAME,
+# default: openai/gpt-4o-mini)
+export OPENROUTER_API_KEY=your_key
+aviatrade --action agent
+```
+
+Example session:
+```
+Agent> analyze Moscow–Sochi prices for 2025-12-20
+Agent> add Moscow–Saint-Petersburg on 2025-12-15 to tracking, every 30 minutes
+Agent> show the watchlist
+Agent> remove Moscow–Sochi
+```
+
+Available agent tools:
+
+| Tool | Purpose |
+|------|---------|
+| `scrape_and_save_tool` | Scrape current prices for a route and save them |
+| `visualize_prices_tool` | Generate price charts for a route |
+| `monitor_prices_tool` | Continuously monitor a single route |
+| `get_price_stats_tool` | Detailed price statistics & recommendations |
+| `add_to_watchlist_tool` | Add a route to the multi-direction watchlist |
+| `remove_from_watchlist_tool` | Remove a route from the watchlist |
+| `list_watchlist_tool` | List all watched routes |
+| `monitor_watchlist_tool` | Continuously monitor every watched route |
+
 ## Common IATA Codes
 
 | Code | City |
@@ -139,11 +218,14 @@ aviatrade/
 ├── src/aviatrade/       # Main package
 │   ├── cli/             # Command-line interface
 │   │   ├── main.py      # CLI entry point
+│   │   ├── lib.py       # Scrape/visualize/monitor orchestration
 │   │   └── tui/         # Interactive TUI application
+│   ├── agent/           # AI agent (LangChain create_agent) and tools
 │   ├── core/            # Configuration
-│   ├── db/              # Database models and operations
+│   ├── db/              # Database models (FlightPrice, Watchlist) and operations
 │   ├── scraper/         # Web scraping (Botasaurus)
 │   └── visualization/   # Chart generation (matplotlib)
+├── initdb/              # TimescaleDB init scripts (run on first DB start)
 ├── configs/             # Configuration files
 ├── charts/              # Generated charts output
 └── run.py               # Development entry point
@@ -179,11 +261,13 @@ python run.py --origin MOW --destination LED --date 2025-12-15 --action scrape
 | Argument | Description | Required |
 |----------|-------------|----------|
 | `--tui` | Launch interactive TUI | No |
-| `--origin` | Origin airport IATA code | Yes (CLI mode) |
-| `--destination` | Destination airport IATA code | Yes (CLI mode) |
-| `--date` | Departure date (YYYY-MM-DD) | Yes (CLI mode) |
-| `--action` | Action: scrape, visualize, monitor, both | No (default: both) |
-| `--interval` | Monitor interval in minutes | No (default: 60) |
+| `--origin` | Origin airport IATA code | Yes (route-specific actions) |
+| `--destination` | Destination airport IATA code | Yes (route-specific actions) |
+| `--date` | Departure date (YYYY-MM-DD) | Yes (route-specific actions) |
+| `--action` | Action: `scrape`, `visualize`, `monitor`, `both`, `agent`, `watch-add`, `watch-remove`, `watch-list`, `monitor-all` | No (default: both) |
+| `--interval` | Collection interval in minutes (for `monitor`/`monitor-all`; per-route interval for `watch-add`) | No (default: 60) |
+
+> `watch-list`, `monitor-all`, and `agent` do **not** require `--origin/--destination/--date`.
 
 ### TUI Architecture
 The TUI is built with [Textual](https://textual.textualize.io/) framework:
