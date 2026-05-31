@@ -76,6 +76,10 @@ class AviaTradeApp(App):
                         ("Scrape Flights", "scrape"),
                         ("Visualize Data", "visualize"),
                         ("Monitor Prices", "monitor"),
+                        ("Add to Watchlist", "watch-add"),
+                        ("Remove from Watchlist", "watch-remove"),
+                        ("Show Watchlist", "watch-list"),
+                        ("Monitor Watchlist", "monitor-all"),
                         ("AI Agent", "agent"),
                     ],
                     id="action-select",
@@ -118,8 +122,21 @@ class AviaTradeApp(App):
                 agent_panel.display = True
                 self._log("AI Agent mode selected")
                 self._log("Enter your request in the agent input field below")
-            else:
-                agent_panel.display = False
+                return
+
+            agent_panel.display = False
+
+            if event.value == "watch-add":
+                self._log("Add to Watchlist: fill Origin, Destination, Date and Interval")
+            elif event.value == "watch-remove":
+                self._log("Remove from Watchlist: fill Origin, Destination and Date")
+            elif event.value == "watch-list":
+                self._log("Show Watchlist: press Execute (no route fields needed)")
+            elif event.value == "monitor-all":
+                self._log(
+                    "Monitor Watchlist: scrapes every watched route; "
+                    "Interval is the default for routes without their own"
+                )
 
     async def _initialize_database(self) -> None:
         """Initialize database connection."""
@@ -242,19 +259,23 @@ class AviaTradeApp(App):
         interval_str = self.query_one("#interval-input", Input).value.strip() or "60"
         action = self.query_one("#action-select", Select).value
 
-        if not all([origin, destination, date_str]):
-            self._log_error("Please fill all required fields (Origin, Destination, Date)")
-            self._set_status("error", "Missing required fields")
-            return
+        # Actions that operate on the whole watchlist don't need a single route.
+        route_optional_actions = {"watch-list", "monitor-all", "agent"}
 
-        try:
-            departure_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            if departure_date < datetime.now().date():
-                self._log_warning(f"Date {date_str} is in the past")
-        except ValueError:
-            self._log_error("Invalid date format. Use YYYY-MM-DD")
-            self._set_status("error", "Invalid date format")
-            return
+        if action not in route_optional_actions:
+            if not all([origin, destination, date_str]):
+                self._log_error("Please fill all required fields (Origin, Destination, Date)")
+                self._set_status("error", "Missing required fields")
+                return
+
+            try:
+                departure_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                if departure_date < datetime.now().date():
+                    self._log_warning(f"Date {date_str} is in the past")
+            except ValueError:
+                self._log_error("Invalid date format. Use YYYY-MM-DD")
+                self._set_status("error", "Invalid date format")
+                return
 
         try:
             interval = int(interval_str)
@@ -297,6 +318,225 @@ class AviaTradeApp(App):
                 exclusive=True,
                 thread=True,
             )
+        elif action == "watch-add":
+            self._watch_add(origin, destination, date_str, interval)
+        elif action == "watch-remove":
+            self._watch_remove(origin, destination, date_str)
+        elif action == "watch-list":
+            self._watch_list()
+        elif action == "monitor-all":
+            self._monitor_running = True
+            self._current_worker = self.run_worker(
+                partial(self._monitor_watchlist_worker, interval),
+                name="monitor-all",
+                exclusive=True,
+                thread=True,
+            )
+        else:
+            # No-op actions (e.g. "agent" is driven by the agent panel).
+            self._reset_buttons()
+
+    def _watch_add(self, origin: str, destination: str, date: str, interval: int) -> None:
+        """Add a route to the watchlist (fast DB operation, runs inline)."""
+        try:
+            record = self.db.add_watch(origin, destination, date, interval)
+            self._log_success(
+                f"Added to watchlist: {record.origin} -> {record.destination} "
+                f"on {record.departure_date} (every {record.interval_min} min)"
+            )
+            self._set_status("success", "Route added to watchlist")
+        except Exception as e:
+            self._log_error(f"Failed to add route: {e}")
+            self._set_status("error", str(e))
+        finally:
+            self._reset_buttons()
+
+    def _watch_remove(self, origin: str, destination: str, date: str) -> None:
+        """Remove a route from the watchlist (fast DB operation, runs inline)."""
+        try:
+            removed = self.db.remove_watch(origin, destination, date)
+            if removed:
+                self._log_success(
+                    f"Removed from watchlist: {origin} -> {destination} on {date}"
+                )
+                self._set_status("success", "Route removed from watchlist")
+            else:
+                self._log_warning(
+                    f"No watchlist entry for {origin} -> {destination} on {date}"
+                )
+                self._set_status("warning", "Route not found in watchlist")
+        except Exception as e:
+            self._log_error(f"Failed to remove route: {e}")
+            self._set_status("error", str(e))
+        finally:
+            self._reset_buttons()
+
+    def _watch_list(self) -> None:
+        """Show the current watchlist in the log panel (fast DB op, runs inline)."""
+        try:
+            routes = self.db.get_watchlist(enabled_only=False)
+            if not routes:
+                self._log_warning("Watchlist is empty. Use 'Add to Watchlist' action.")
+            else:
+                self._log_success(f"Watchlist ({len(routes)} route(s)):")
+                for r in routes:
+                    state = "enabled" if r.enabled else "disabled"
+                    self._log(
+                        f"  [{state}] {r.origin} -> {r.destination}  "
+                        f"{r.departure_date}  every {r.interval_min} min"
+                    )
+            self._set_status("success", "Ready")
+        except Exception as e:
+            self._log_error(f"Failed to read watchlist: {e}")
+            self._set_status("error", str(e))
+        finally:
+            self._reset_buttons()
+
+    def _scrape_route_once(self, origin: str, destination: str, date: str) -> int:
+        """Scrape one route and persist it. Returns saved count. Runs in a worker thread."""
+        search_params = {
+            "origin": origin,
+            "destination": destination,
+            "departure_date": date,
+        }
+        flights = AviasalesScraper.scrape_flights(search_params)
+        if not flights:
+            return 0
+
+        saved = 0
+        for flight in flights:
+            try:
+                flight_for_db = flight.copy()
+                flight_for_db["id"] = uuid.uuid4().int % 2147483647
+                if isinstance(flight_for_db.get("departure_date"), str):
+                    flight_for_db["departure_date"] = datetime.strptime(
+                        flight_for_db["departure_date"], "%Y-%m-%d"
+                    ).date()
+                if isinstance(flight_for_db.get("scraped_at"), str):
+                    flight_for_db["scraped_at"] = datetime.fromisoformat(
+                        flight_for_db["scraped_at"]
+                    )
+                self.db.add_flight_price(flight_for_db)
+                saved += 1
+            except Exception:
+                pass
+        return saved
+
+    def _monitor_watchlist_worker(self, default_interval_minutes: int) -> None:
+        """Worker for continuous monitoring of every enabled watchlist route.
+
+        Re-reads the watchlist each cycle (so routes added/removed are picked up
+        live), scrapes due routes sequentially, and honors each route's own
+        ``interval_min`` (falling back to ``default_interval_minutes``).
+        """
+        worker = get_current_worker()
+
+        def log_to_tui(msg: str) -> None:
+            if not worker.is_cancelled:
+                self.call_from_thread(self._log, msg)
+
+        def route_key(route: Any) -> tuple[str, str, str]:
+            return (route.origin, route.destination, str(route.departure_date))
+
+        next_due: dict[tuple[str, str, str], float] = {}
+        cycle = 1
+
+        self.call_from_thread(
+            self._log,
+            f"Starting watchlist monitor (default interval: {default_interval_minutes}min)",
+        )
+
+        try:
+            while not worker.is_cancelled and self._monitor_running:
+                routes = self.db.get_watchlist(enabled_only=True)
+
+                if not routes:
+                    self.call_from_thread(
+                        self._log_warning, "Watchlist is empty. Add routes to monitor."
+                    )
+                    self.call_from_thread(
+                        self._set_status, "warning", "Watchlist empty - waiting..."
+                    )
+                    self._interruptible_sleep(worker, default_interval_minutes * 60)
+                    continue
+
+                now = time.monotonic()
+                due_routes = [r for r in routes if next_due.get(route_key(r), 0.0) <= now]
+
+                if due_routes:
+                    self.call_from_thread(
+                        self._set_status,
+                        "loading",
+                        f"Watchlist cycle #{cycle} ({len(due_routes)} due)...",
+                    )
+                    self.call_from_thread(self._log, f"--- Watchlist cycle #{cycle} ---")
+
+                    for route in due_routes:
+                        if worker.is_cancelled or not self._monitor_running:
+                            break
+                        self.call_from_thread(
+                            self._log,
+                            f"Scraping {route.origin} -> {route.destination} "
+                            f"({route.departure_date})",
+                        )
+                        try:
+                            with redirect_output_to_tui(log_to_tui):
+                                saved = self._scrape_route_once(
+                                    route.origin, route.destination, str(route.departure_date)
+                                )
+                            if saved:
+                                self.call_from_thread(
+                                    self._log_success,
+                                    f"{route.origin}->{route.destination}: saved {saved} flights",
+                                )
+                            else:
+                                self.call_from_thread(
+                                    self._log_warning,
+                                    f"{route.origin}->{route.destination}: no flights found",
+                                )
+                        except Exception as e:
+                            self.call_from_thread(
+                                self._log_error,
+                                f"{route.origin}->{route.destination} error: {e}",
+                            )
+                        interval = route.interval_min or default_interval_minutes
+                        next_due[route_key(route)] = time.monotonic() + interval * 60
+
+                    cycle += 1
+
+                # Sleep until the nearest route becomes due (capped, interruptible).
+                now = time.monotonic()
+                active_keys = {route_key(r) for r in routes}
+                upcoming = [t for k, t in next_due.items() if k in active_keys and t > now]
+                sleep_seconds = (
+                    min(upcoming) - now if upcoming else default_interval_minutes * 60
+                )
+                sleep_seconds = max(1.0, min(sleep_seconds, default_interval_minutes * 60))
+                self.call_from_thread(
+                    self._set_status,
+                    "loading",
+                    f"Next route due in {sleep_seconds / 60:.1f}min...",
+                )
+                self._interruptible_sleep(worker, sleep_seconds)
+
+            self.call_from_thread(
+                self._log, f"Watchlist monitor stopped after {cycle - 1} cycle(s)"
+            )
+            self.call_from_thread(self._set_status, "success", "Monitor stopped")
+
+        except Exception as e:
+            self.call_from_thread(self._log_error, f"Watchlist monitor error: {e}")
+            self.call_from_thread(self._set_status, "error", str(e))
+        finally:
+            self._monitor_running = False
+            self.call_from_thread(self._reset_buttons)
+
+    def _interruptible_sleep(self, worker: Worker[Any], seconds: float) -> None:
+        """Sleep in 1-second steps, breaking early on cancel or monitor stop."""
+        for _ in range(int(seconds)):
+            if worker.is_cancelled or not self._monitor_running:
+                break
+            time.sleep(1)
 
     def _scrape_worker(self, origin: str, destination: str, date: str) -> int:
         """Worker for scraping operation."""

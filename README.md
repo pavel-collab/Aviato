@@ -60,9 +60,14 @@ aviatrade-tui
 
 ### TUI Features
 - **Input form**: Enter origin, destination, departure date, and monitoring interval
-- **Action selector**: Choose between Scrape, Visualize, Monitor, or Both
+- **Action selector**: Scrape, Visualize, Monitor, Both, AI Agent, and watchlist
+  actions — Add to Watchlist, Remove from Watchlist, Show Watchlist, Monitor Watchlist
 - **Live log panel**: View application messages and progress in real-time
 - **Keyboard shortcuts**: `q` - quit, `Escape` - cancel running operation
+
+> Watchlist tip: *Add to Watchlist* / *Remove from Watchlist* use the route fields
+> (Origin, Destination, Date) plus Interval; *Show Watchlist* and *Monitor
+> Watchlist* don't need route fields — just press Execute.
 
 ### TUI Layout
 ```
