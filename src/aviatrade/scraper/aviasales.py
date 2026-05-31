@@ -36,6 +36,8 @@ class AviasalesScraper:
         reuse_driver=True,
         wait_for_complete_page_load=False,
         block_images=True,
+        headless=True,
+        add_arguments=["--disable-dev-shm-usage", "--disable-gpu"],
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     )
     def scrape_flights(driver: Driver, data: dict[str, Any]) -> list[dict[str, Any]]:
