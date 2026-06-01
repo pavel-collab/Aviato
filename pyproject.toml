@@ -52,6 +52,15 @@ dev = [
 langgraph = [
     "langgraph-cli[inmem]>=0.2",
 ]
+# FastAPI backend + worker (внешний REST API, связка с графом через SDK,
+# прикладная очередь RabbitMQ и хранилище статусов задач в Redis).
+backend = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "aio-pika>=9.4",
+    "redis>=5.0",
+    "pydantic-settings>=2.0",
+]
 
 [project.scripts]
 aviatrade = "aviatrade.cli.main:main"

@@ -65,6 +65,40 @@ Chromium so the ops subagent can scrape inside the container; the
 `langgraph-server` service gets its own Postgres (`langgraph-postgres`) + Redis
 for run-state, separate from the TimescaleDB that stores prices.
 
+### Running the Backend (FastAPI + worker)
+```bash
+# Local (needs RabbitMQ + Redis reachable; the LangGraph server for /agent/chat):
+uv run --extra backend uvicorn aviatrade.backend.main:app --reload   # API on :8000
+uv run --extra backend python -m aviatrade.backend.worker            # queue consumer
+
+# Full stack in Docker (TimescaleDB + LangGraph Server + RabbitMQ + backend + worker):
+docker-compose up -d --build
+```
+The backend is the external REST API. Endpoints (see `/docs`): agent chat
+(`POST /agent/chat` sync via SDK, `POST /agent/chat/async` → `GET /jobs/{id}`),
+scraping (`POST /scrape` → queue → worker), stats (`GET /stats`), charts
+(`POST /charts`), watchlist CRUD (`/watchlist`), background monitors
+(`/monitors`), plus the OpenAI-compatible pair `GET /v1/models` and
+`POST /v1/chat/completions` (consumed by OpenWebUI). Heavy work (scraping, graph
+runs) goes through RabbitMQ to the `worker`; light work (stats, watchlist,
+monitors) runs in-process.
+
+### Frontend (OpenWebUI)
+`docker-compose up -d --build` also starts **OpenWebUI** on
+`http://localhost:3000`. It is wired to the backend's OpenAI-compatible API
+(`OPENAI_API_BASE_URL=http://backend:8000/v1`) and configured purely via env
+vars in `docker-compose.yml` (`WEBUI_AUTH=false` for instant access,
+`DEFAULT_MODELS=aviatrade-agent`). Background AI task features are turned off
+(`ENABLE_TITLE_GENERATION`, `ENABLE_FOLLOW_UP_GENERATION`,
+`ENABLE_SEARCH_QUERY_GENERATION`, `ENABLE_TAGS_GENERATION`,
+`ENABLE_AUTOCOMPLETE_GENERATION` = `false`) so the UI never sends hidden
+`### Task:` LLM calls to the agent.
+
+**Key design rule:** the agent graph does NOT call the backend. Its ops subagent
+invokes the underlying functions (`cli.lib` / `db` / `MONITORS`) **directly**, so
+the agent runs in dev (`langgraph dev`) without the backend up. The backend is a
+parallel path to the same functions for external clients (see `backend/actions.py`).
+
 ## Project Structure
 
 ```
@@ -78,6 +112,15 @@ aviatrade/
 │       ├── core/               # Core configuration
 │       │   ├── __init__.py
 │       │   └── config.py       # Environment configuration
+│       ├── backend/            # FastAPI backend (external REST API)
+│       │   ├── __init__.py
+│       │   ├── config.py       # pydantic-settings (rabbitmq/redis/langgraph URLs)
+│       │   ├── mq.py           # RabbitMQ publish + Redis job store
+│       │   ├── lg_client.py    # langgraph-sdk wrapper (agent chat, full history)
+│       │   ├── actions.py      # adapter over cli.lib / db / MONITORS (JSON dicts)
+│       │   ├── openai_api.py   # OpenAI-compatible /v1 router for OpenWebUI frontend
+│       │   ├── worker.py       # RabbitMQ consumer (scrape / run_graph)
+│       │   └── main.py         # FastAPI app + endpoints (mounts openai_api)
 │       ├── agent/              # AI agent (LangGraph router + subagents)
 │       │   ├── __init__.py     # exports `graph` + AgentFactory
 │       │   ├── graph.py        # router node + subagent nodes → compiled `graph`
@@ -101,8 +144,9 @@ aviatrade/
 ├── configs/
 │   └── .env.example            # Environment variables template
 ├── charts/                     # Output directory for generated charts
-├── docker-compose.yml          # TimescaleDB + LangGraph Server (postgres/redis)
+├── docker-compose.yml          # TimescaleDB + LangGraph Server + RabbitMQ + backend + worker + openwebui
 ├── Dockerfile                  # LangGraph Server image (+ Chromium for scraping)
+├── Dockerfile.backend          # FastAPI backend + worker image (aviatrade pkg + Chromium)
 ├── langgraph.json              # Graph entrypoint for langgraph dev / Server
 ├── pyproject.toml              # Project metadata + dependencies (uv)
 ├── run.py                      # Development entry point
@@ -129,6 +173,20 @@ langgraph dev / Server      →  langgraph.json
         → agent/subagents.py (create_agent factories, model/prompts from Runtime[Context])
             → agent/tools.py (wraps cli/lib.py functions as @tool, grouped per subagent)
             → agent/monitoring.py (BackgroundMonitorManager for non-blocking monitors)
+
+backend/main.py (external REST API)
+    → backend/actions.py → cli/lib.py + db + agent/monitoring.MONITORS  (direct, light ops)
+    → backend/mq.py (RabbitMQ publish) → backend/worker.py (heavy ops)
+            → scrape: backend/actions.run_scrape (Botasaurus)
+            → chat:   backend/lg_client.run_graph → LangGraph Server (SDK)
+    → backend/mq.py (Redis) stores job status/result → GET /jobs/{id}
+
+OpenWebUI (frontend, :3000)
+    → backend/openai_api.py (GET /v1/models, POST /v1/chat/completions, SSE)
+        → backend/lg_client.run_graph_messages → LangGraph Server (SDK)
+
+NB: the agent path and the backend path are INDEPENDENT. The agent never calls
+the backend; both reuse the same execution layer (cli/lib, db, MONITORS).
 ```
 
 ### Key Components
@@ -143,13 +201,20 @@ langgraph dev / Server      →  langgraph.json
 - **agent/subagents.py**: `make_model` (OpenRouter via `ChatOpenAI`) + `lru_cache`d `create_agent` factories per subagent; model/temperature/system prompts come from `runtime.context` (`Runtime[Context]`) so they can be hot-swapped per invocation / in LangGraph Studio
 - **agent/monitoring.py**: `BackgroundMonitorManager` runs continuous monitoring in daemon threads (non-blocking) so the graph never hangs; ops tools start/stop/list monitors
 - **agent/agent.py**: `AgentFactory.build_agent` is a thin compat shim returning the compiled `graph` (keeps CLI `run_agent` and the TUI working unchanged)
+- **backend/main.py**: FastAPI app exposing the actions (scrape/stats/charts/watchlist/monitors) and agent chat as REST endpoints; heavy work is enqueued to RabbitMQ, light work runs in-process via `run_in_threadpool`
+- **backend/actions.py**: thin adapter calling the same execution layer as the agent (`cli.lib`, `db`, `MONITORS`) but returning JSON-friendly dicts — keeps the backend and agent paths independent
+- **backend/worker.py**: RabbitMQ consumer; `scrape` jobs → `actions.run_scrape`, `chat` jobs → `lg_client.run_graph` (graph via langgraph-sdk); results stored in Redis under `job_id`
+- **backend/openai_api.py**: OpenAI-compatible router (`GET /v1/models`, `POST /v1/chat/completions` with SSE streaming) so OpenWebUI can talk to the agent; proxies the full chat history into the graph via `run_graph_messages`; guards against OpenWebUI service requests (`### Task:` prefix) to avoid burning tokens
+- **backend/mq.py / lg_client.py / config.py**: RabbitMQ+Redis job plumbing, langgraph-sdk client (`run_graph` / `run_graph_messages`), and pydantic-settings (mirrors the langgraph-research-assistant reference backend)
+- **OpenWebUI (`openwebui` service)**: chat frontend on `:3000`; configured entirely via env vars (connects to `http://backend:8000/v1`, `WEBUI_AUTH=false`, `DEFAULT_MODELS=aviatrade-agent`). All background AI task features (title/follow-up/search-query/tags/autocomplete generation) are disabled so OpenWebUI does not send hidden LLM calls to the agent — see the `concepts/openwebui-service-message-isolation` note in the Obsidian KB
 
 ### Tech Stack
 - **Botasaurus**: Selenium-like browser automation for web scraping
 - **SQLAlchemy + psycopg2**: PostgreSQL ORM
 - **matplotlib/seaborn/pandas**: Data visualization and analysis
 - **LangGraph (`StateGraph` + `Runtime[Context]`) + LangChain `create_agent` + langchain-openai**: router/subagents agent over OpenRouter, runnable via `langgraph dev` / LangGraph Server
-- **Docker Compose**: TimescaleDB container (PostgreSQL 16 + time-series extension) + LangGraph Server (own Postgres/Redis)
+- **FastAPI + uvicorn + aio-pika (RabbitMQ) + redis + langgraph-sdk**: external REST backend with an async worker, talking to the agent graph over the SDK (installed via the `backend` extra)
+- **Docker Compose**: TimescaleDB container (PostgreSQL 16 + time-series extension) + LangGraph Server (own Postgres/Redis) + RabbitMQ + backend + worker
 - **uv**: dependency and environment management
 
 ### Database Schema

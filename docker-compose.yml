@@ -45,13 +45,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # Redis: внутренняя очередь LangGraph Server (БД /0) И хранилище статусов
+  # задач прикладного backend (БД /1) — это разные логические базы одного инстанса.
   redis:
     image: redis:7
     container_name: aviatrade_langgraph_redis
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
+      retries: 10
+
+  # --- Прикладная очередь сообщений (ручка backend → worker) -------------------
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: aviatrade_rabbitmq
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # веб-консоль (guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
       retries: 10
 
   # --- LangGraph Server (прод-режим, собирается из нашего Dockerfile) ----------
@@ -87,6 +104,115 @@ services:
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-aviatrade}
 
+  # --- FastAPI backend (внешний REST API) --------------------------------------
+  # Дёргает основные действия приложения (scrape/watchlist/monitor/stats/charts)
+  # и проксирует диалог к графу агента через LangGraph SDK.
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: aviatrade_backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      langgraph-server:
+        condition: service_started
+    environment:
+      # Доступ к данным приложения (TimescaleDB сервиса `postgres`).
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: flight_prices
+      DB_USER: flight_user
+      DB_PASSWORD: flight_password
+      # Связка с графом агента + прикладные очереди.
+      LANGGRAPH_URL: http://langgraph-server:8000
+      GRAPH_ID: aviatrade_agent
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/1
+      JOB_QUEUE: aviatrade_jobs
+    command: ["uvicorn", "aviatrade.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  # --- Worker: RabbitMQ → скрапинг / прогон графа ------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: aviatrade_worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      langgraph-server:
+        condition: service_started
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: flight_prices
+      DB_USER: flight_user
+      DB_PASSWORD: flight_password
+      LANGGRAPH_URL: http://langgraph-server:8000
+      GRAPH_ID: aviatrade_agent
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      REDIS_URL: redis://redis:6379/1
+      JOB_QUEUE: aviatrade_jobs
+    command: ["python", "-m", "aviatrade.backend.worker"]
+
+  # --- Frontend: OpenWebUI -----------------------------------------------------
+  # Чат-интерфейс поверх нашего OpenAI-совместимого backend (ручки /v1/*).
+  # Вся первичная настройка — через переменные окружения; служебные AI-фичи
+  # выключены, чтобы не слать лишних запросов к агенту и не жечь токены.
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: aviatrade_openwebui
+    ports:
+      - "3000:8080"  # UI на http://localhost:3000
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      # --- Подключение к нашему OpenAI-совместимому backend --------------------
+      OPENAI_API_BASE_URL: http://backend:8000/v1
+      OPENAI_API_KEY: aviatrade-local   # backend не проверяет ключ
+      ENABLE_OPENAI_API: "true"
+      ENABLE_OLLAMA_API: "false"        # локальные модели не нужны
+
+      # --- Первичная настройка интерфейса -------------------------------------
+      WEBUI_NAME: "AviaTrade Assistant"
+      WEBUI_AUTH: "false"               # без логина (single-user) — мгновенный доступ
+      ENABLE_SIGNUP: "false"
+      DEFAULT_MODELS: "aviatrade-agent" # модель из GET /v1/models
+      DEFAULT_LOCALE: "ru"
+
+      # --- Отключение служебных AI-запросов (не засорять сессию / не тратить токены) ---
+      # Эти фичи шлют на эндпоинт агента скрытые "### Task:"-запросы.
+      ENABLE_TITLE_GENERATION: "false"
+      ENABLE_FOLLOW_UP_GENERATION: "false"
+      ENABLE_SEARCH_QUERY_GENERATION: "false"
+      ENABLE_RETRIEVAL_QUERY_GENERATION: "false"
+      ENABLE_TAGS_GENERATION: "false"
+      ENABLE_AUTOCOMPLETE_GENERATION: "false"
+      ENABLE_EVALUATION_ARENA_MODELS: "false"
+
+      # --- Прочие тяжёлые/ненужные подсистемы ---------------------------------
+      ENABLE_WEB_SEARCH: "false"
+      ENABLE_IMAGE_GENERATION: "false"
+      ENABLE_CODE_INTERPRETER: "false"
+      ENABLE_COMMUNITY_SHARING: "false"
+      ENABLE_MESSAGE_RATING: "false"
+    volumes:
+      - openwebui_data:/app/backend/data
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   langgraph_postgres_data:
+  openwebui_data:
