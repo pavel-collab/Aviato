@@ -32,8 +32,6 @@ dependencies = [
     "seaborn>=0.12",
     "pandas>=2.0",
     "python-dotenv>=1.0",
-    "textual>=0.50.0",
-    "textual-plotext>=0.2.0",
     "langchain>=1.0",
     "langchain-openai>=0.3",
     "langchain-community>=0.3",
@@ -64,7 +62,6 @@ backend = [
 
 [project.scripts]
 aviatrade = "aviatrade.cli.main:main"
-aviatrade-tui = "aviatrade.cli.tui:main"
 
 [project.urls]
 Homepage = "https://github.com/aviatrade/aviatrade"

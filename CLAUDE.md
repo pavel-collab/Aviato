@@ -46,9 +46,6 @@ uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action both
 
 # Interactive AI agent (requires OPENROUTER_API_KEY)
 uv run aviatrade --action agent
-
-# Interactive TUI
-uv run aviatrade --tui
 ```
 
 ### Running the Agent Graph (LangGraph)
@@ -128,7 +125,7 @@ aviatrade/
 │       │   ├── state.py        # State (messages+route) + Context (Runtime config)
 │       │   ├── tools.py        # @tool functions grouped per subagent
 │       │   ├── monitoring.py   # BackgroundMonitorManager (non-blocking monitors)
-│       │   └── agent.py        # AgentFactory shim (compat for CLI/TUI)
+│       │   └── agent.py        # AgentFactory shim (compat for CLI)
 │       ├── db/                 # Database layer
 │       │   ├── __init__.py
 │       │   ├── models.py       # SQLAlchemy ORM models
@@ -167,7 +164,7 @@ cli/main.py
     → visualization/visualizer.py (matplotlib/seaborn)
     → /charts/*.png
 
-cli/lib.py run_agent / tui  →  agent/agent.py (AgentFactory shim)
+cli/lib.py run_agent       →  agent/agent.py (AgentFactory shim)
 langgraph dev / Server      →  langgraph.json
     → agent/graph.py (router node → analysis/charts/ops/chat subagent nodes)
         → agent/subagents.py (create_agent factories, model/prompts from Runtime[Context])
@@ -196,11 +193,11 @@ the backend; both reuse the same execution layer (cli/lib, db, MONITORS).
 - **db/database.py**: `Database` class for session management and CRUD operations
 - **scraper/aviasales.py**: `AviasalesScraper` uses Botasaurus browser automation with multi-selector CSS approach
 - **visualization/visualizer.py**: `FlightPriceVisualizer` generates 4-panel analysis charts
-- **cli/main.py**: CLI entry point with modes: scrape, visualize, monitor, both, agent (plus `--tui`)
+- **cli/main.py**: CLI entry point with modes: scrape, visualize, monitor, both, agent
 - **agent/graph.py**: `StateGraph(State, context_schema=Context)` — a `router` node (structured output → analysis/charts/ops/chat) with subagent nodes; exported as `graph` and invoked with `{"messages": [...]}`
 - **agent/subagents.py**: `make_model` (OpenRouter via `ChatOpenAI`) + `lru_cache`d `create_agent` factories per subagent; model/temperature/system prompts come from `runtime.context` (`Runtime[Context]`) so they can be hot-swapped per invocation / in LangGraph Studio
 - **agent/monitoring.py**: `BackgroundMonitorManager` runs continuous monitoring in daemon threads (non-blocking) so the graph never hangs; ops tools start/stop/list monitors
-- **agent/agent.py**: `AgentFactory.build_agent` is a thin compat shim returning the compiled `graph` (keeps CLI `run_agent` and the TUI working unchanged)
+- **agent/agent.py**: `AgentFactory.build_agent` is a thin compat shim returning the compiled `graph` (keeps CLI `run_agent` working unchanged)
 - **backend/main.py**: FastAPI app exposing the actions (scrape/stats/charts/watchlist/monitors) and agent chat as REST endpoints; heavy work is enqueued to RabbitMQ, light work runs in-process via `run_in_threadpool`
 - **backend/actions.py**: thin adapter calling the same execution layer as the agent (`cli.lib`, `db`, `MONITORS`) but returning JSON-friendly dicts — keeps the backend and agent paths independent
 - **backend/worker.py**: RabbitMQ consumer; `scrape` jobs → `actions.run_scrape`, `chat` jobs → `lg_client.run_graph` (graph via langgraph-sdk); results stored in Redis under `job_id`

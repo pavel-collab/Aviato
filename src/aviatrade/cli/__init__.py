@@ -2,4 +2,4 @@
 
 from aviatrade.cli.main import main
 
-__all__ = ["main", "tui"]
+__all__ = ["main"]

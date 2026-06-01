@@ -2,7 +2,7 @@
 
 Router + субагенты на LangGraph. ``graph`` — скомпилированный граф (точка входа
 для ``langgraph dev`` и LangGraph Server). ``AgentFactory`` — совместимость со
-старым CLI/TUI.
+старым CLI.
 """
 
 from aviatrade.agent.agent import AgentFactory

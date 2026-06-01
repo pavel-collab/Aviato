@@ -24,7 +24,7 @@ The project is managed with [uv](https://docs.astral.sh/uv/):
 uv sync
 
 # Run commands inside the environment
-uv run aviatrade --tui
+uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action scrape
 ```
 
 ### 3. Configure environment
@@ -35,10 +35,7 @@ cp configs/.env.example .env
 
 ### 4. Run the application
 ```bash
-# Launch interactive TUI (recommended for most users)
-aviatrade --tui
-
-# Or use command-line mode
+# Scrape flight prices
 aviatrade --origin MOW --destination LED --date 2025-12-15 --action scrape
 
 # Track several routes at once (multi-direction watchlist)
@@ -47,53 +44,9 @@ aviatrade --origin MOW --destination AER --date 2025-12-20 --action watch-add
 aviatrade --action monitor-all --interval 60
 ```
 
-## Interactive TUI
-
-AviaTrade includes an interactive terminal user interface (TUI) for convenient operation.
-
-### Launch TUI
-```bash
-aviatrade --tui
-# or
-aviatrade-tui
-```
-
-### TUI Features
-- **Input form**: Enter origin, destination, departure date, and monitoring interval
-- **Action selector**: Scrape, Visualize, Monitor, Both, AI Agent, and watchlist
-  actions — Add to Watchlist, Remove from Watchlist, Show Watchlist, Monitor Watchlist
-- **Live log panel**: View application messages and progress in real-time
-- **Keyboard shortcuts**: `q` - quit, `Escape` - cancel running operation
-
-> Watchlist tip: *Add to Watchlist* / *Remove from Watchlist* use the route fields
-> (Origin, Destination, Date) plus Interval; *Show Watchlist* and *Monitor
-> Watchlist* don't need route fields — just press Execute.
-
-### TUI Layout
-```
-+----------------------------------------------------------+
-|  AviaTrade - Flight Price Monitor                        |
-+------------------+---------------------------------------+
-| Flight Search    |  [●] Ready                            |
-|                  |                                       |
-| Origin (IATA):   |  Application Log                      |
-| [MOW          ]  | +---------------------------------+   |
-|                  | | 10:30:15 AviaTrade TUI started  |   |
-| Destination:     | | 10:30:16 Database connected     |   |
-| [LED          ]  | | 10:30:45 Scraping flights...    |   |
-|                  | | 10:30:52 Found 15 flights       |   |
-| Departure Date:  | |                                 |   |
-| [2025-12-15   ]  | |                                 |   |
-|                  | |                                 |   |
-| Interval (min):  | |                                 |   |
-| [60           ]  | |                                 |   |
-|                  | |                                 |   |
-| Action:          | |                                 |   |
-| [Scrape + Viz ▼] | |                                 |   |
-|                  | +---------------------------------+   |
-| [Execute][Cancel]|                                       |
-+------------------+---------------------------------------+
-```
+> Prefer a chat UI? Run the full stack with `docker-compose up -d --build` and
+> open **OpenWebUI** at `http://localhost:3000` to talk to the agent. See
+> `CLAUDE.md` for the backend/frontend details.
 
 ## Command-Line Usage
 
@@ -223,9 +176,9 @@ aviatrade/
 ├── src/aviatrade/       # Main package
 │   ├── cli/             # Command-line interface
 │   │   ├── main.py      # CLI entry point
-│   │   ├── lib.py       # Scrape/visualize/monitor orchestration
-│   │   └── tui/         # Interactive TUI application
-│   ├── agent/           # AI agent (LangChain create_agent) and tools
+│   │   └── lib.py       # Scrape/visualize/monitor orchestration
+│   ├── backend/         # FastAPI backend + worker (REST API, OpenWebUI frontend)
+│   ├── agent/           # AI agent (LangGraph router + subagents) and tools
 │   ├── core/            # Configuration
 │   ├── db/              # Database models (FlightPrice, Watchlist) and operations
 │   ├── scraper/         # Web scraping (Botasaurus)
@@ -244,15 +197,15 @@ aviatrade/
 uv sync --extra dev
 
 # Run a command inside the environment
-uv run aviatrade --tui
+uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action scrape
 
 # Or activate the environment manually
 source .venv/bin/activate  # Linux/macOS
 # or: .venv\Scripts\activate  # Windows
 ```
 
-### Running without TUI
-For development and debugging, you can bypass the TUI and use CLI directly:
+### Running via run.py
+For debugging you can use the `run.py` entry point instead of the installed command:
 
 ```bash
 # Using the installed command
@@ -265,7 +218,6 @@ python run.py --origin MOW --destination LED --date 2025-12-15 --action scrape
 ### Available CLI arguments
 | Argument | Description | Required |
 |----------|-------------|----------|
-| `--tui` | Launch interactive TUI | No |
 | `--origin` | Origin airport IATA code | Yes (route-specific actions) |
 | `--destination` | Destination airport IATA code | Yes (route-specific actions) |
 | `--date` | Departure date (YYYY-MM-DD) | Yes (route-specific actions) |
@@ -273,15 +225,6 @@ python run.py --origin MOW --destination LED --date 2025-12-15 --action scrape
 | `--interval` | Collection interval in minutes (for `monitor`/`monitor-all`; per-route interval for `watch-add`) | No (default: 60) |
 
 > `watch-list`, `monitor-all`, and `agent` do **not** require `--origin/--destination/--date`.
-
-### TUI Architecture
-The TUI is built with [Textual](https://textual.textualize.io/) framework:
-- `tui/app.py` - Main application class with workers for async operations
-- `tui/widgets.py` - Custom widgets (StatusIndicator, LogPanel)
-- `tui/workers.py` - Output redirection utilities
-- `tui/styles.tcss` - Textual CSS styles
-
-Workers run in separate threads to keep the UI responsive during scraping operations.
 
 ### How to set up the Timescale extension for PostgreSQL
 

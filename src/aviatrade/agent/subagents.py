@@ -74,7 +74,7 @@ DEFAULT_CHARTS_SYSTEM = (
 
 DEFAULT_OPS_SYSTEM = (
     "Ты — оператор системы мониторинга цен на авиабилеты. Ты управляешь "
-    "внутренней функциональностью, доступной в CLI и TUI:\n"
+    "внутренней функциональностью, доступной в CLI:\n"
     "- разовый сбор данных: scrape_and_save_tool;\n"
     "- список отслеживаемых маршрутов (watchlist): add_to_watchlist_tool, "
     "remove_from_watchlist_tool, list_watchlist_tool;\n"

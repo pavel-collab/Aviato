@@ -161,7 +161,7 @@ def monitor_watchlist(
     """Monitor every enabled route in the watchlist.
 
     The watchlist is re-read at the start of every cycle, so routes added or
-    removed (via CLI, agent, or TUI) are picked up without restarting the
+    removed (via CLI or agent) are picked up without restarting the
     monitor. Routes are scraped sequentially to stay gentle on Aviasales and
     avoid parallel browser sessions.
 
