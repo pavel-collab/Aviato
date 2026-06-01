@@ -1,0 +1,35 @@
+# Пример конфигурации backend (localhost / dev).
+# В Docker используется projects/backend/config.yaml с docker-хостами.
+
+database:
+  host: localhost
+  port: 5432
+  user: flight_user
+  password: flight_password
+  database: flight_prices
+
+rabbitmq:
+  host: localhost
+  port: 5672
+  user: guest
+  password: guest
+  scrape_queue: scrape_tasks
+  job_queue: aviatrade_jobs
+
+redis:
+  host: localhost
+  port: 6379
+  db: 1
+
+langgraph:
+  url: "http://localhost:8123"
+  graph_id: "aviatrade_agent"
+
+scraper:
+  # backend сам не скрапит — публикует задачи в очередь.
+  mode: rabbitmq
+  headless: true
+  max_flights: 20
+
+host: "0.0.0.0"
+port: 8000

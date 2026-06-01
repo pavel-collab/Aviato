@@ -24,19 +24,16 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
 ]
 
+# CLI-инструмент. Тяжёлые зависимости (botasaurus/sqlalchemy/matplotlib/…) и сам
+# граф приходят транзитивно через shared.*; здесь — только то, что нужно CLI
+# напрямую (langgraph-sdk для интерактивного режима агента).
 dependencies = [
-    "botasaurus>=4.0.36",
-    "psycopg2-binary>=2.9.9",
-    "sqlalchemy>=2.0",
-    "matplotlib>=3.7",
-    "seaborn>=0.12",
-    "pandas>=2.0",
-    "python-dotenv>=1.0",
-    "langchain>=1.0",
-    "langchain-openai>=0.3",
-    "langchain-community>=0.3",
-    "langgraph>=0.3",
     "langgraph-sdk>=0.1",
+    "shared.core",
+    "shared.db",
+    "shared.scraper",
+    "shared.analytics",
+    "shared.services",
 ]
 
 [project.optional-dependencies]
@@ -46,19 +43,6 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1",
 ]
-# Локальный запуск графа через `uv run langgraph dev` (LangGraph Studio).
-langgraph = [
-    "langgraph-cli[inmem]>=0.2",
-]
-# FastAPI backend + worker (внешний REST API, связка с графом через SDK,
-# прикладная очередь RabbitMQ и хранилище статусов задач в Redis).
-backend = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
-    "aio-pika>=9.4",
-    "redis>=5.0",
-    "pydantic-settings>=2.0",
-]
 
 [project.scripts]
 aviatrade = "aviatrade.cli.main:main"
@@ -66,6 +50,22 @@ aviatrade = "aviatrade.cli.main:main"
 [project.urls]
 Homepage = "https://github.com/aviatrade/aviatrade"
 Repository = "https://github.com/aviatrade/aviatrade"
+
+# --- uv workspace (монорепо: общие либы в shared/, сервисы в projects/) ---------
+# На время миграции корень остаётся пакетом `aviatrade` И одновременно корнем
+# workspace — так старый CLI и временные re-export шимы продолжают работать, пока
+# модули переезжают в shared/*. По завершении миграции (фаза 9) корень станет
+# package=false, а src/aviatrade будет удалён.
+[tool.uv.workspace]
+members = ["projects/*", "shared/*"]
+
+# Общие библиотеки разрешаются из workspace, а не из индекса PyPI.
+[tool.uv.sources]
+"shared.core" = { workspace = true }
+"shared.db" = { workspace = true }
+"shared.scraper" = { workspace = true }
+"shared.analytics" = { workspace = true }
+"shared.services" = { workspace = true }
 
 [tool.setuptools.packages.find]
 where = ["src"]

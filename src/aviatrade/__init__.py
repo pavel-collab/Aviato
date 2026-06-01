@@ -1,19 +1,8 @@
-"""
-AviaTrade - Flight price monitoring system for Aviasales.ru
+"""AviaTrade — CLI-инструмент мониторинга цен на авиабилеты (Aviasales).
+
+Бизнес-логика и доступ к данным вынесены в общие библиотеки ``shared.*``,
+деплой-сервисы — в ``projects/*`` (scraper, agent, backend). Этот пакет —
+тонкий CLI поверх ``shared.*``.
 """
 
 __version__ = "1.0.0"
-
-from aviatrade.core.config import config
-from aviatrade.db.database import Database
-from aviatrade.db.models import FlightPrice
-from aviatrade.scraper.aviasales import AviasalesScraper
-from aviatrade.visualization.visualizer import FlightPriceVisualizer
-
-__all__ = [
-    "config",
-    "Database",
-    "FlightPrice",
-    "AviasalesScraper",
-    "FlightPriceVisualizer",
-]

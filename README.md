@@ -171,22 +171,28 @@ docker exec -it <container-id> /bin/bash
 
 ## Project Structure
 
+AviaTrade is a **`uv` workspace monorepo**: shared libraries in `shared/*`,
+deployable services in `projects/*`, and a thin CLI at the root. Configuration is
+pydantic-settings loaded from YAML (`config.yaml`, gitignored; see
+`config.example.yaml`). See `CLAUDE.md` for the full architecture.
+
 ```
 aviatrade/
-├── src/aviatrade/       # Main package
-│   ├── cli/             # Command-line interface
-│   │   ├── main.py      # CLI entry point
-│   │   └── lib.py       # Scrape/visualize/monitor orchestration
-│   ├── backend/         # FastAPI backend + worker (REST API, OpenWebUI frontend)
-│   ├── agent/           # AI agent (LangGraph router + subagents) and tools
-│   ├── core/            # Configuration
-│   ├── db/              # Database models (FlightPrice, Watchlist) and operations
-│   ├── scraper/         # Web scraping (Botasaurus)
-│   └── visualization/   # Chart generation (matplotlib)
+├── src/aviatrade/       # CLI tool (root package): cli/{main,lib}.py, config.py
+├── shared/              # installable libraries (shared.<name>)
+│   ├── core/            # pydantic-settings YAML base + config models
+│   ├── db/              # SYNC SQLAlchemy models (FlightPrice, Watchlist) + Database
+│   ├── scraper/         # Botasaurus scraper + ScrapeTask/FlightRecord schemas
+│   ├── analytics/       # matplotlib charts + price stats
+│   └── services/        # use-cases: scraping (local/queue), monitoring, db factory
+├── projects/            # deployable services
+│   ├── scraper/         # RabbitMQ consumer (the only Chromium image) — scalable
+│   ├── agent/           # LangGraph Server graph (aviatrade_agent) + langgraph.json
+│   └── backend/         # FastAPI REST + OpenAI API (OpenWebUI) + worker
 ├── initdb/              # TimescaleDB init scripts (run on first DB start)
-├── configs/             # Configuration files
-├── charts/              # Generated charts output
-└── run.py               # Development entry point
+├── docker-compose.yml   # full stack (+ OpenWebUI on :3000)
+├── config.example.yaml  # CLI config template
+└── run.py               # CLI dev entry point
 ```
 
 ## For Developers

@@ -1,0 +1,22 @@
+[project]
+name = "scraper"
+version = "0.1.0"
+description = "Сервис-скрапер AviaTrade: RabbitMQ consumer (scrape_tasks) → TimescaleDB."
+requires-python = ">=3.10"
+dependencies = [
+    "aio-pika>=9.4",
+    "redis>=5.0",
+    "shared.core",
+    "shared.db",
+    "shared.scraper",
+    "shared.services",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+"shared.core" = { workspace = true }
+"shared.db" = { workspace = true }
+"shared.scraper" = { workspace = true }
+"shared.services" = { workspace = true }

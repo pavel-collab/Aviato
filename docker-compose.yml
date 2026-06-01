@@ -1,35 +1,38 @@
-version: '3.8'
+# Полный стек AviaTrade (uv-workspace монорепо).
+#
+# Сервисы (projects/*):
+#   scraper  — RabbitMQ consumer, скрапит Aviasales и пишет в TimescaleDB
+#              (ЕДИНСТВЕННЫЙ контейнер с Chromium; масштабируется --scale scraper=N);
+#   agent    — LangGraph Server (граф aviatrade_agent), общий доступ по SDK;
+#   backend  — FastAPI REST + OpenAI API (наружу), публикует scrape/chat задачи;
+#   worker   — потребитель chat-очереди (асинхронный прогон графа);
+#   openwebui — чат-фронтенд поверх backend (/v1/*).
+#
+# Очереди RabbitMQ: scrape_tasks (→ scraper) и aviatrade_jobs (→ worker).
+# Конфиг каждого сервиса монтируется из projects/<svc>/config.yaml (в .gitignore;
+# создайте из config.example.yaml и впишите секреты/хосты).
 
 services:
+  # --- Данные приложения: TimescaleDB ----------------------------------------
   postgres:
-    # TimescaleDB — расширение PostgreSQL для временных рядов (на базе PG 16).
     image: timescale/timescaledb:latest-pg16
     container_name: flight_prices_db
-
     environment:
       POSTGRES_DB: flight_prices
       POSTGRES_USER: flight_user
       POSTGRES_PASSWORD: flight_password
-
     ports:
       - "5432:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Init-скрипты выполняются автоматически при первом старте (пустой volume):
-      # создаётся гипертаблица, настраиваются чанки (time buckets) и сжатие.
       - ./initdb:/docker-entrypoint-initdb.d:ro
-
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U flight_user -d flight_prices"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # --- Базы для самого LangGraph Server (его run-state, НЕ данные приложения) ---
-  # LangGraph Server хранит свои потоки/run-ы в собственном Postgres и использует
-  # Redis как внутреннюю очередь. Это отдельный слой от TimescaleDB выше, где
-  # лежат цены на билеты.
+  # --- Run-state самого LangGraph Server (НЕ данные приложения) --------------
   langgraph-postgres:
     image: postgres:16
     container_name: aviatrade_langgraph_db
@@ -45,11 +48,10 @@ services:
       timeout: 5s
       retries: 10
 
-  # Redis: внутренняя очередь LangGraph Server (БД /0) И хранилище статусов
-  # задач прикладного backend (БД /1) — это разные логические базы одного инстанса.
+  # Redis: внутренняя очередь LangGraph Server (БД /0) И статусы задач backend (/1).
   redis:
     image: redis:7
-    container_name: aviatrade_langgraph_redis
+    container_name: aviatrade_redis
     ports:
       - "6379:6379"
     healthcheck:
@@ -58,27 +60,46 @@ services:
       timeout: 3s
       retries: 10
 
-  # --- Прикладная очередь сообщений (ручка backend → worker) -------------------
+  # --- Прикладная очередь сообщений ------------------------------------------
   rabbitmq:
     image: rabbitmq:3-management
     container_name: aviatrade_rabbitmq
     ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # веб-консоль (guest/guest)
+      - "5672:5672"
+      - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 10s
       retries: 10
 
-  # --- LangGraph Server (прод-режим, собирается из нашего Dockerfile) ----------
-  langgraph-server:
+  # --- Сервис-скрапер (масштабируемый воркер очереди) ------------------------
+  scraper:
     build:
       context: .
-      dockerfile: Dockerfile
-    container_name: aviatrade_langgraph_server
+      dockerfile: projects/scraper/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SETTINGS_PATH: /app/projects/scraper/config.yaml
+    volumes:
+      - ./projects/scraper/config.yaml:/app/projects/scraper/config.yaml:ro
+    restart: unless-stopped
+    # Масштаб: docker compose up -d --scale scraper=3
+
+  # --- LangGraph Server (граф агента) ----------------------------------------
+  agent:
+    build:
+      context: .
+      dockerfile: projects/agent/Dockerfile
+    container_name: aviatrade_agent
     ports:
-      - "8123:8000"  # REST API графа
+      - "8123:8000"  # REST графа (для отладки; наружу смотрит backend)
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,31 +107,25 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
-      # Адреса внутренних БД самого LangGraph Server.
+      # Run-state самого LangGraph Server.
       DATABASE_URI: postgres://postgres:postgres@langgraph-postgres:5432/postgres?sslmode=disable
       REDIS_URI: redis://redis:6379
-      # Доступ графа к данным приложения (TimescaleDB сервиса `postgres`).
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: flight_prices
-      DB_USER: flight_user
-      DB_PASSWORD: flight_password
-      # Модель агента (читается make_model внутри графа).
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      MODEL_NAME: ${MODEL_NAME:-openai/gpt-4o-mini}
-      # LangSmith — опциональная трассировка прогонов графа.
+      # Конфиг приложения (БД/LLM/scraper/rabbitmq) графа.
+      SETTINGS_PATH: /app/projects/agent/config.yaml
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-aviatrade}
+    volumes:
+      - ./projects/agent/config.yaml:/app/projects/agent/config.yaml:ro
 
-  # --- FastAPI backend (внешний REST API) --------------------------------------
-  # Дёргает основные действия приложения (scrape/watchlist/monitor/stats/charts)
-  # и проксирует диалог к графу агента через LangGraph SDK.
+  # --- FastAPI backend (внешний API) -----------------------------------------
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: projects/backend/Dockerfile
     container_name: aviatrade_backend
     ports:
       - "8000:8000"
@@ -121,79 +136,54 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      langgraph-server:
+      agent:
         condition: service_started
     environment:
-      # Доступ к данным приложения (TimescaleDB сервиса `postgres`).
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: flight_prices
-      DB_USER: flight_user
-      DB_PASSWORD: flight_password
-      # Связка с графом агента + прикладные очереди.
-      LANGGRAPH_URL: http://langgraph-server:8000
-      GRAPH_ID: aviatrade_agent
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379/1
-      JOB_QUEUE: aviatrade_jobs
-    command: ["uvicorn", "aviatrade.backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+      SETTINGS_PATH: /app/projects/backend/config.yaml
+    volumes:
+      - ./projects/backend/config.yaml:/app/projects/backend/config.yaml:ro
+      - ./charts:/app/projects/backend/charts
+    command: ["python", "-m", "src"]
 
-  # --- Worker: RabbitMQ → скрапинг / прогон графа ------------------------------
+  # --- Worker: chat-очередь → граф (через SDK) -------------------------------
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: projects/backend/Dockerfile
     container_name: aviatrade_worker
     depends_on:
-      postgres:
-        condition: service_healthy
       rabbitmq:
         condition: service_healthy
       redis:
         condition: service_healthy
-      langgraph-server:
+      agent:
         condition: service_started
     environment:
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: flight_prices
-      DB_USER: flight_user
-      DB_PASSWORD: flight_password
-      LANGGRAPH_URL: http://langgraph-server:8000
-      GRAPH_ID: aviatrade_agent
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      REDIS_URL: redis://redis:6379/1
-      JOB_QUEUE: aviatrade_jobs
-    command: ["python", "-m", "aviatrade.backend.worker"]
+      SETTINGS_PATH: /app/projects/backend/config.yaml
+    volumes:
+      - ./projects/backend/config.yaml:/app/projects/backend/config.yaml:ro
+    command: ["python", "-m", "src.worker"]
 
-  # --- Frontend: OpenWebUI -----------------------------------------------------
-  # Чат-интерфейс поверх нашего OpenAI-совместимого backend (ручки /v1/*).
-  # Вся первичная настройка — через переменные окружения; служебные AI-фичи
-  # выключены, чтобы не слать лишних запросов к агенту и не жечь токены.
+  # --- Frontend: OpenWebUI ---------------------------------------------------
   openwebui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: aviatrade_openwebui
     ports:
-      - "3000:8080"  # UI на http://localhost:3000
+      - "3000:8080"
     depends_on:
       backend:
         condition: service_started
     environment:
-      # --- Подключение к нашему OpenAI-совместимому backend --------------------
       OPENAI_API_BASE_URL: http://backend:8000/v1
-      OPENAI_API_KEY: aviatrade-local   # backend не проверяет ключ
+      OPENAI_API_KEY: aviatrade-local
       ENABLE_OPENAI_API: "true"
-      ENABLE_OLLAMA_API: "false"        # локальные модели не нужны
-
-      # --- Первичная настройка интерфейса -------------------------------------
+      ENABLE_OLLAMA_API: "false"
       WEBUI_NAME: "AviaTrade Assistant"
-      WEBUI_AUTH: "false"               # без логина (single-user) — мгновенный доступ
+      WEBUI_AUTH: "false"
       ENABLE_SIGNUP: "false"
-      DEFAULT_MODELS: "aviatrade-agent" # модель из GET /v1/models
+      DEFAULT_MODELS: "aviatrade-agent"
       DEFAULT_LOCALE: "ru"
-
-      # --- Отключение служебных AI-запросов (не засорять сессию / не тратить токены) ---
-      # Эти фичи шлют на эндпоинт агента скрытые "### Task:"-запросы.
+      # Отключение служебных AI-запросов (не засорять сессию / не тратить токены).
       ENABLE_TITLE_GENERATION: "false"
       ENABLE_FOLLOW_UP_GENERATION: "false"
       ENABLE_SEARCH_QUERY_GENERATION: "false"
@@ -201,8 +191,6 @@ services:
       ENABLE_TAGS_GENERATION: "false"
       ENABLE_AUTOCOMPLETE_GENERATION: "false"
       ENABLE_EVALUATION_ARENA_MODELS: "false"
-
-      # --- Прочие тяжёлые/ненужные подсистемы ---------------------------------
       ENABLE_WEB_SEARCH: "false"
       ENABLE_IMAGE_GENERATION: "false"
       ENABLE_CODE_INTERPRETER: "false"

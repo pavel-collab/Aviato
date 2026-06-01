@@ -1,0 +1,34 @@
+# Пример конфигурации CLI-инструмента AviaTrade (localhost / dev).
+# Скопируйте в config.yaml и при необходимости поправьте. config.yaml в .gitignore
+# (там реальные секреты). Без config.yaml действуют дефолты из shared.core.settings.
+
+database:
+  host: localhost
+  port: 5432
+  user: flight_user
+  password: flight_password
+  database: flight_prices
+
+rabbitmq:
+  host: localhost
+  port: 5672
+  user: guest
+  password: guest
+  scrape_queue: scrape_tasks
+  job_queue: aviatrade_jobs
+
+scraper:
+  # local — CLI скрапит и сохраняет сам (нужен Chromium, не нужен брокер);
+  # rabbitmq — CLI публикует задачу, собирает отдельный сервис scraper.
+  mode: local
+  headless: true
+  max_flights: 20
+
+llm:
+  api_key: "sk-..."
+  base_url: "https://openrouter.ai/api/v1"
+  model: "openai/gpt-4o-mini"
+
+langgraph:
+  url: "http://localhost:8123"
+  graph_id: "aviatrade_agent"

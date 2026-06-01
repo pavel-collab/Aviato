@@ -1,0 +1,27 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "FastAPI backend AviaTrade: REST + OpenAI API (OpenWebUI), связка с графом через SDK."
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "aio-pika>=9.4",
+    "redis>=5.0",
+    "langgraph-sdk>=0.1",
+    "shared.core",
+    "shared.db",
+    "shared.scraper",
+    "shared.services",
+    "shared.analytics",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+"shared.core" = { workspace = true }
+"shared.db" = { workspace = true }
+"shared.scraper" = { workspace = true }
+"shared.services" = { workspace = true }
+"shared.analytics" = { workspace = true }

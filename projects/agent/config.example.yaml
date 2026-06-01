@@ -1,0 +1,30 @@
+# Пример конфигурации агентного сервиса (localhost / dev).
+# Скопируйте в config.yaml (он в .gitignore — там реальный ключ OpenRouter).
+# В Docker значения берутся из projects/agent/config.yaml с docker-хостами.
+
+database:
+  host: localhost
+  port: 5432
+  user: flight_user
+  password: flight_password
+  database: flight_prices
+
+rabbitmq:
+  host: localhost
+  port: 5672
+  user: guest
+  password: guest
+  scrape_queue: scrape_tasks
+  job_queue: aviatrade_jobs
+
+scraper:
+  # В проде агент НЕ скрапит сам — публикует задачу в очередь (rabbitmq).
+  # Для локальной отладки без брокера можно поставить local.
+  mode: rabbitmq
+  headless: true
+  max_flights: 20
+
+llm:
+  api_key: "sk-..."
+  base_url: "https://openrouter.ai/api/v1"
+  model: "openai/gpt-4o-mini"

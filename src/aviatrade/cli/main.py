@@ -3,15 +3,16 @@
 import argparse
 from datetime import datetime
 
-from aviatrade.cli.lib import (
-    monitor_prices,
+from aviatrade.cli.lib import run_agent
+from aviatrade.config import config
+from shared.analytics import FlightPriceVisualizer, visualize_prices
+from shared.scraper import ScrapeTask
+from shared.services import (
+    dispatch_scrape,
+    get_database,
+    monitor_route,
     monitor_watchlist,
-    run_agent,
-    scrape_and_save,
-    visualize_prices,
 )
-from aviatrade.db import Database
-from aviatrade.visualization import FlightPriceVisualizer
 
 
 def main() -> None:
@@ -45,7 +46,7 @@ Examples:
   # Monitor every route in the watchlist (multi-direction)
   aviatrade --action monitor-all --interval 60
 
-  # Run AI agent (developer mode)
+  # Run AI agent (talks to the LangGraph server via SDK)
   aviatrade --action agent
 
 Popular IATA codes for Russian cities:
@@ -115,11 +116,11 @@ Popular IATA codes for Russian cities:
 
     # Initialize
     print("Starting AviaTrade flight price monitoring")
+    print(f"Scraper mode: {config.scraper.mode}")
     print("Initializing database...")
 
     try:
-        db = Database()
-        db.create_tables()
+        db = get_database(config.database)
         print("Database ready")
     except Exception as e:
         print(f"Error connecting to database: {e}")
@@ -128,19 +129,46 @@ Popular IATA codes for Russian cities:
 
     visualizer = FlightPriceVisualizer()
 
+    def _scrape(origin: str, destination: str, date: str) -> int | None:
+        """Dispatch scraping per configured mode; returns saved count (local) or None (queued)."""
+        result = dispatch_scrape(
+            ScrapeTask(origin=origin, destination=destination, departure_date=date),
+            scraper=config.scraper,
+            rabbitmq=config.rabbitmq,
+            db=db,
+        )
+        if result is None:
+            print("Scrape task queued (mode=rabbitmq). Data will appear once the scraper processes it.")
+        return result
+
     # Execute actions
     if args.action == "scrape":
-        scrape_and_save(args.origin, args.destination, args.date, db)
+        _scrape(args.origin, args.destination, args.date)
     elif args.action == "visualize":
         visualize_prices(args.origin, args.destination, args.date, db, visualizer)
     elif args.action == "monitor":
-        monitor_prices(args.origin, args.destination, args.date, db, args.interval)
+        monitor_route(
+            args.origin,
+            args.destination,
+            args.date,
+            db,
+            scraper=config.scraper,
+            rabbitmq=config.rabbitmq,
+            interval_minutes=args.interval,
+        )
     elif args.action == "both":
-        saved = scrape_and_save(args.origin, args.destination, args.date, db)
-        if saved > 0:
+        saved = _scrape(args.origin, args.destination, args.date)
+        # In local mode visualize the freshly collected data; in queue mode the
+        # data is collected asynchronously, so visualize whatever is already stored.
+        if saved is None or saved > 0:
             visualize_prices(args.origin, args.destination, args.date, db, visualizer)
     elif args.action == "monitor-all":
-        monitor_watchlist(db, default_interval_minutes=args.interval)
+        monitor_watchlist(
+            db,
+            scraper=config.scraper,
+            rabbitmq=config.rabbitmq,
+            default_interval_minutes=args.interval,
+        )
     elif args.action == "watch-add":
         record = db.add_watch(args.origin, args.destination, args.date, args.interval)
         print(
