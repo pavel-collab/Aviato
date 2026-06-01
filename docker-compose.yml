@@ -1,22 +1,28 @@
-# Полный стек AviaTrade (uv-workspace монорепо).
+# Полный стек AviaTrade (uv-workspace монорепо) с профилями запуска.
 #
-# Сервисы (projects/*):
-#   scraper  — RabbitMQ consumer, скрапит Aviasales и пишет в TimescaleDB
-#              (ЕДИНСТВЕННЫЙ контейнер с Chromium; масштабируется --scale scraper=N);
-#   agent    — LangGraph Server (граф aviatrade_agent), общий доступ по SDK;
-#   backend  — FastAPI REST + OpenAI API (наружу), публикует scrape/chat задачи;
-#   worker   — потребитель chat-очереди (асинхронный прогон графа);
-#   openwebui — чат-фронтенд поверх backend (/v1/*).
+# Профили (--profile):
+#   infra — служебные сервисы: TimescaleDB, Redis, RabbitMQ и масштабируемый
+#           сервис-скрапер. Этого достаточно, чтобы тестировать скрапинг
+#           скриптами/CLI и чтобы запускать агента локально через `langgraph dev`.
+#   agent — то же, что infra, плюс LangGraph Server (граф агента) и его run-state БД.
+#   app   — полное приложение: infra + agent + backend + worker + OpenWebUI.
+#
+# Примеры:
+#   docker compose --profile infra up -d                 # только служебные сервисы
+#   docker compose --profile app   up -d --build         # всё приложение
+#
+# Конфиги контейнеров монтируются из projects/<svc>/config.docker.yaml
+# (docker-хосты; в .gitignore — создайте из config.docker.example.yaml).
+# Инструменты на хосте (CLI, langgraph dev) читают config.yaml (localhost).
 #
 # Очереди RabbitMQ: scrape_tasks (→ scraper) и aviatrade_jobs (→ worker).
-# Конфиг каждого сервиса монтируется из projects/<svc>/config.yaml (в .gitignore;
-# создайте из config.example.yaml и впишите секреты/хосты).
 
 services:
   # --- Данные приложения: TimescaleDB ----------------------------------------
   postgres:
     image: timescale/timescaledb:latest-pg16
     container_name: flight_prices_db
+    profiles: ["infra", "agent", "app"]
     environment:
       POSTGRES_DB: flight_prices
       POSTGRES_USER: flight_user
@@ -36,6 +42,7 @@ services:
   langgraph-postgres:
     image: postgres:16
     container_name: aviatrade_langgraph_db
+    profiles: ["agent", "app"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -48,10 +55,11 @@ services:
       timeout: 5s
       retries: 10
 
-  # Redis: внутренняя очередь LangGraph Server (БД /0) И статусы задач backend (/1).
+  # Redis: внутренняя очередь LangGraph Server (БД /0) И статусы задач (/1).
   redis:
     image: redis:7
     container_name: aviatrade_redis
+    profiles: ["infra", "agent", "app"]
     ports:
       - "6379:6379"
     healthcheck:
@@ -64,6 +72,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     container_name: aviatrade_rabbitmq
+    profiles: ["infra", "agent", "app"]
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -74,10 +83,12 @@ services:
       retries: 10
 
   # --- Сервис-скрапер (масштабируемый воркер очереди) ------------------------
+  # Единственный образ с Chromium. Масштаб: docker compose up -d --scale scraper=3
   scraper:
     build:
       context: .
       dockerfile: projects/scraper/Dockerfile
+    profiles: ["infra", "agent", "app"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,11 +97,10 @@ services:
       redis:
         condition: service_healthy
     environment:
-      SETTINGS_PATH: /app/projects/scraper/config.yaml
+      SETTINGS_PATH: /app/projects/scraper/config.docker.yaml
     volumes:
-      - ./projects/scraper/config.yaml:/app/projects/scraper/config.yaml:ro
+      - ./projects/scraper/config.docker.yaml:/app/projects/scraper/config.docker.yaml:ro
     restart: unless-stopped
-    # Масштаб: docker compose up -d --scale scraper=3
 
   # --- LangGraph Server (граф агента) ----------------------------------------
   agent:
@@ -98,6 +108,7 @@ services:
       context: .
       dockerfile: projects/agent/Dockerfile
     container_name: aviatrade_agent
+    profiles: ["agent", "app"]
     ports:
       - "8123:8000"  # REST графа (для отладки; наружу смотрит backend)
     depends_on:
@@ -114,12 +125,12 @@ services:
       DATABASE_URI: postgres://postgres:postgres@langgraph-postgres:5432/postgres?sslmode=disable
       REDIS_URI: redis://redis:6379
       # Конфиг приложения (БД/LLM/scraper/rabbitmq) графа.
-      SETTINGS_PATH: /app/projects/agent/config.yaml
+      SETTINGS_PATH: /app/projects/agent/config.docker.yaml
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-aviatrade}
     volumes:
-      - ./projects/agent/config.yaml:/app/projects/agent/config.yaml:ro
+      - ./projects/agent/config.docker.yaml:/app/projects/agent/config.docker.yaml:ro
 
   # --- FastAPI backend (внешний API) -----------------------------------------
   backend:
@@ -127,6 +138,7 @@ services:
       context: .
       dockerfile: projects/backend/Dockerfile
     container_name: aviatrade_backend
+    profiles: ["app"]
     ports:
       - "8000:8000"
     depends_on:
@@ -139,9 +151,9 @@ services:
       agent:
         condition: service_started
     environment:
-      SETTINGS_PATH: /app/projects/backend/config.yaml
+      SETTINGS_PATH: /app/projects/backend/config.docker.yaml
     volumes:
-      - ./projects/backend/config.yaml:/app/projects/backend/config.yaml:ro
+      - ./projects/backend/config.docker.yaml:/app/projects/backend/config.docker.yaml:ro
       - ./charts:/app/projects/backend/charts
     command: ["python", "-m", "src"]
 
@@ -151,6 +163,7 @@ services:
       context: .
       dockerfile: projects/backend/Dockerfile
     container_name: aviatrade_worker
+    profiles: ["app"]
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -159,15 +172,16 @@ services:
       agent:
         condition: service_started
     environment:
-      SETTINGS_PATH: /app/projects/backend/config.yaml
+      SETTINGS_PATH: /app/projects/backend/config.docker.yaml
     volumes:
-      - ./projects/backend/config.yaml:/app/projects/backend/config.yaml:ro
+      - ./projects/backend/config.docker.yaml:/app/projects/backend/config.docker.yaml:ro
     command: ["python", "-m", "src.worker"]
 
   # --- Frontend: OpenWebUI ---------------------------------------------------
   openwebui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: aviatrade_openwebui
+    profiles: ["app"]
     ports:
       - "3000:8080"
     depends_on:

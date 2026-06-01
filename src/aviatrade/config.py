@@ -8,7 +8,6 @@ CLI — это локальный инструмент (не деплой-сер
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from pydantic import Field
@@ -20,11 +19,10 @@ from shared.core.settings import (
     LLMSettings,
     RabbitMQSettings,
     ScraperSettings,
+    resolve_settings_path,
 )
 
-settings_path = os.getenv(
-    "SETTINGS_PATH", str(Path(__file__).resolve().parents[2] / "config.yaml")
-)
+settings_path = resolve_settings_path(str(Path(__file__).resolve().parents[2] / "config.yaml"))
 
 
 class CliSettings(BaseServiceSettings):

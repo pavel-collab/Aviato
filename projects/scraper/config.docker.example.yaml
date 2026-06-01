@@ -1,0 +1,24 @@
+# Конфиг сервиса-скрапера ДЛЯ КОНТЕЙНЕРА (docker-compose монтирует config.docker.yaml).
+# Хосты — имена сервисов compose. Скопируйте в config.docker.yaml.
+
+database:
+  host: postgres
+  port: 5432
+  user: flight_user
+  password: flight_password
+  database: flight_prices
+
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: guest
+  password: guest
+  scrape_queue: scrape_tasks
+  job_queue: aviatrade_jobs
+
+redis:
+  host: redis
+  port: 6379
+  db: 1
+
+prefetch_count: 1

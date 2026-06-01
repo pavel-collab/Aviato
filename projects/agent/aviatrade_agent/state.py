@@ -52,7 +52,7 @@ class Context(TypedDict, total=False):
         )
     """
 
-    # Имя модели; None/нет ключа → берётся из переменной окружения MODEL_NAME.
+    # Имя модели; None/нет ключа → берётся из config.llm.model (YAML).
     # Метка __template_metadata__ kind=llm подсказывает Studio показать селектор
     # модели для этого поля.
     #

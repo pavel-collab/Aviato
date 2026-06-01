@@ -177,35 +177,6 @@ class Database:
         finally:
             session.close()
 
-    def set_watch_enabled(
-        self, origin: str, destination: str, departure_date: Any, enabled: bool
-    ) -> bool:
-        """Enable or disable a watchlist route without deleting it.
-
-        Returns:
-            True if a record was updated, False if no match was found.
-        """
-        departure_date = self._coerce_date(departure_date)
-        session = self.get_session()
-
-        try:
-            updated = (
-                session.query(Watchlist)
-                .filter(
-                    Watchlist.origin == origin,
-                    Watchlist.destination == destination,
-                    Watchlist.departure_date == departure_date,
-                )
-                .update({Watchlist.enabled: enabled})
-            )
-            session.commit()
-            return updated > 0
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
     def get_watchlist(self, enabled_only: bool = True) -> list[Watchlist]:
         """Return watchlist routes.
 

@@ -1,0 +1,29 @@
+# Конфиг агента ДЛЯ КОНТЕЙНЕРА (docker-compose монтирует config.docker.yaml).
+# Хосты — имена сервисов compose. Скопируйте в config.docker.yaml и впишите ключ.
+# Для `langgraph dev` на хосте используйте config.yaml (см. config.example.yaml).
+
+database:
+  host: postgres
+  port: 5432
+  user: flight_user
+  password: flight_password
+  database: flight_prices
+
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: guest
+  password: guest
+  scrape_queue: scrape_tasks
+  job_queue: aviatrade_jobs
+
+scraper:
+  # Агент в контейнере не скрапит сам — публикует задачу в очередь.
+  mode: rabbitmq
+  headless: true
+  max_flights: 20
+
+llm:
+  api_key: "sk-..."
+  base_url: "https://openrouter.ai/api/v1"
+  model: "openai/gpt-4o-mini"

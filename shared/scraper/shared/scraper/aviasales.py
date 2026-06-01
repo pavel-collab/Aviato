@@ -40,7 +40,7 @@ class AviasalesScraper:
         add_arguments=["--disable-dev-shm-usage", "--disable-gpu"],
         user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     )
-    def scrape_flights(driver: Driver, data: dict[str, Any]) -> list[dict[str, Any]]:
+    def scrape_flights(driver: Driver, data: dict[str, Any]) -> list[dict[str, Any]]:  # noqa: N805 — botasaurus @browser инжектит driver первым аргументом
         """Scrape flight prices from Aviasales.ru.
 
         Args:

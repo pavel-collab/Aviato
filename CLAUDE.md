@@ -29,7 +29,7 @@ AviaTrade/
 ├── shared/                   # installable libraries (package name shared.<name>)
 │   ├── core/      shared/core/{settings.py, logging.py}      # pydantic-settings YAML base + models
 │   ├── db/        shared/db/{models.py, database.py}         # SYNC SQLAlchemy (FlightPrice, Watchlist, Database)
-│   ├── scraper/   shared/scraper/{aviasales.py, schemas.py}  # botasaurus scraper + ScrapeTask/FlightRecord
+│   ├── scraper/   shared/scraper/{aviasales.py, schemas.py}  # botasaurus scraper + ScrapeTask
 │   ├── analytics/ shared/analytics/{visualizer.py, stats.py, charts.py}  # matplotlib + stats
 │   └── services/  shared/services/{scraping.py, monitoring.py, db_factory.py}  # use-cases (no matplotlib)
 │
@@ -55,9 +55,12 @@ and selects the sections it needs. Override the path with `SETTINGS_PATH`.
 - Shared models: `DatabaseSettings` (sync `dsn`), `RabbitMQSettings` (`scrape_queue`,
   `job_queue`, `url`), `RedisSettings`, `LLMSettings` (OpenRouter), `LangGraphSettings`,
   `ScraperSettings` (`mode: local|rabbitmq`).
-- **Secrets live in `config.yaml`** (per project + repo root), which is **gitignored**.
-  Commit only `config.example.yaml`. Docker mounts `projects/<svc>/config.yaml` and
-  sets `SETTINGS_PATH`. Without a YAML file, defaults apply (localhost, `scraper.mode=local`).
+- **Two config files per service, differing only in hostnames** (both gitignored;
+  commit only the `*.example.yaml`): `config.yaml` (localhost — host tools: CLI,
+  `langgraph dev`) and `config.docker.yaml` (compose service names — containers).
+  docker-compose mounts `projects/<svc>/config.docker.yaml` and sets `SETTINGS_PATH`
+  to it. The path is resolved via `shared.core.settings.resolve_settings_path(fallback)`.
+  Without a YAML file, defaults apply (localhost, `scraper.mode=local`).
 - `make_model` (agent) and the `Database` DSN come from settings, not `os.getenv`.
 
 ## Commands
@@ -86,9 +89,12 @@ uv run --project projects/backend python -m src.worker    # chat-job consumer
 # Scraper service locally
 uv run --project projects/scraper python -m src
 
-# Full stack
-docker compose up -d --build
-docker compose up -d --scale scraper=3   # scale the scraper (competing consumers)
+# Compose profiles: infra (db/redis/rabbitmq/scraper) ⊂ agent (+langgraph server)
+#   ⊂ app (+backend/worker/openwebui). Infra services belong to all three profiles,
+#   so each profile is self-sufficient.
+docker compose --profile infra up -d                 # just the service infra (+ scraper)
+docker compose --profile app up -d --build           # full stack (OpenWebUI on :3000)
+docker compose --profile app up -d --scale scraper=3 # scale the scraper (competing consumers)
 ```
 
 OpenWebUI runs on `http://localhost:3000` (configured entirely via env in
@@ -122,7 +128,7 @@ hosts them (agent/backend) and **publish** scrape tasks each cycle.
 - **shared.core.settings**: `BaseServiceSettings` (YAML-only) + all config models.
 - **shared.db**: `FlightPrice`/`Watchlist` ORM + sync `Database(dsn)`. Schema unchanged
   (hypertable, composite PK `(id, scraped_at)`); `initdb/01-init-timescaledb.sql` still applies.
-- **shared.scraper**: `AviasalesScraper` (botasaurus) + `ScrapeTask`/`FlightRecord` schemas.
+- **shared.scraper**: `AviasalesScraper` (botasaurus) + `ScrapeTask` schema (queue contract).
 - **shared.analytics**: `FlightPriceVisualizer`, `compute_price_stats` (dict),
   `render_stats_report` (text), `visualize_prices`.
 - **shared.services**: `scrape_and_save_local`, `publish_scrape`, `dispatch_scrape`

@@ -47,6 +47,8 @@ htmlcov/
 # mypy
 .mypy_cache/
 
-# YAML-конфиги с секретами (коммитим только config.example.yaml)
+# YAML-конфиги с секретами/хостами (коммитим только *.example.yaml)
 config.yaml
 **/config.yaml
+config.docker.yaml
+**/config.docker.yaml

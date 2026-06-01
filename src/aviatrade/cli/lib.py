@@ -1,49 +1,10 @@
-"""Совместимость: оркестрация переехала в shared.* (фаза 4).
+"""Интерактивный режим CLI: диалог с агентом через LangGraph Server.
 
-Этот модуль оставлен тонким шимом до фазы 9. Функции скрапинга/визуализации/
-мониторинга теперь живут в ``shared.services`` и ``shared.analytics``; здесь —
-их ре-экспорт со старыми сигнатурами, плюс интерактивный ``run_agent`` (переедет
-в projects/cli на фазе 5).
+Скрапинг/визуализация/мониторинг вызываются в ``cli/main.py`` напрямую из
+``shared.*``; здесь — только клиент агента (langgraph-sdk).
 """
 
-from shared.core.settings import RabbitMQSettings, ScraperSettings
-
-from shared.analytics import visualize_prices
-from shared.services import monitor_route
-from shared.services import monitor_watchlist as _monitor_watchlist
-from shared.services import scrape_and_save_local as scrape_and_save
-
-__all__ = [
-    "scrape_and_save",
-    "visualize_prices",
-    "monitor_prices",
-    "monitor_watchlist",
-    "run_agent",
-]
-
-
-def monitor_prices(origin, destination, departure_date, db, interval_minutes=60):
-    """Старая сигнатура CLI: один маршрут, блокирующий мониторинг (через shared)."""
-    monitor_route(
-        origin,
-        destination,
-        departure_date,
-        db,
-        scraper=ScraperSettings(),
-        rabbitmq=RabbitMQSettings(),
-        interval_minutes=interval_minutes,
-    )
-
-
-def monitor_watchlist(db, default_interval_minutes=60, pause_between_routes=5):
-    """Старая сигнатура CLI: блокирующий мониторинг watchlist (через shared)."""
-    _monitor_watchlist(
-        db,
-        scraper=ScraperSettings(),
-        rabbitmq=RabbitMQSettings(),
-        default_interval_minutes=default_interval_minutes,
-        pause_between_routes=pause_between_routes,
-    )
+__all__ = ["run_agent"]
 
 
 def run_agent() -> None:

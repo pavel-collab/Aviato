@@ -1,0 +1,35 @@
+# Конфиг backend ДЛЯ КОНТЕЙНЕРА (docker-compose монтирует config.docker.yaml).
+# Хосты — имена сервисов compose. Скопируйте в config.docker.yaml.
+
+database:
+  host: postgres
+  port: 5432
+  user: flight_user
+  password: flight_password
+  database: flight_prices
+
+rabbitmq:
+  host: rabbitmq
+  port: 5672
+  user: guest
+  password: guest
+  scrape_queue: scrape_tasks
+  job_queue: aviatrade_jobs
+
+redis:
+  host: redis
+  port: 6379
+  db: 1
+
+langgraph:
+  # LangGraph Server — сервис agent в той же сети compose.
+  url: "http://agent:8000"
+  graph_id: "aviatrade_agent"
+
+scraper:
+  mode: rabbitmq
+  headless: true
+  max_flights: 20
+
+host: "0.0.0.0"
+port: 8000

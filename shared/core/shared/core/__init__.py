@@ -1,1 +1,1 @@
-"""shared.core — общие настройки и логирование для сервисов AviaTrade."""
+"""shared.core — общая конфигурация (pydantic-settings + YAML) сервисов AviaTrade."""
