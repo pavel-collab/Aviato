@@ -35,9 +35,10 @@ dependencies = [
     "textual>=0.50.0",
     "textual-plotext>=0.2.0",
     "langchain>=1.0",
-    "langchain-openai>=0.2",
+    "langchain-openai>=0.3",
     "langchain-community>=0.3",
-    "langgraph>=0.2",
+    "langgraph>=0.3",
+    "langgraph-sdk>=0.1",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,10 @@ dev = [
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "ruff>=0.1",
+]
+# Локальный запуск графа через `uv run langgraph dev` (LangGraph Studio).
+langgraph = [
+    "langgraph-cli[inmem]>=0.2",
 ]
 
 [project.scripts]

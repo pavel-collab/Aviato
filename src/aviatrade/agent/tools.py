@@ -1,15 +1,30 @@
+"""Инструменты (tools) агентного графа AviaTrade.
+
+Инструмент в LangChain — обычная Python-функция, обёрнутая декоратором ``@tool``.
+Декоратор берёт сигнатуру и docstring и превращает их в JSON-схему, которую
+модель «видит» и по которой решает, какой инструмент и с какими аргументами
+вызвать. Поэтому docstring — это часть промпта, а не украшение.
+
+Инструменты сгруппированы по субагентам (см. subagents.py):
+
+- ANALYSIS_TOOLS — анализ временных рядов цен (get_price_stats_tool);
+- CHARTS_TOOLS   — построение диаграмм (visualize_prices_tool);
+- OPS_TOOLS      — внутренняя функциональность: разовый скрапинг, управление
+  watchlist и ФОНОВЫЙ мониторинг (start/stop/status).
+
+Важно про мониторинг: непрерывный мониторинг — это бесконечный цикл, поэтому в
+графе он запускается в ФОНЕ (см. monitoring.py), а не блокирует прогон.
+Блокирующие ``monitor_prices`` / ``monitor_watchlist`` остаются только в CLI.
+"""
+
 import re
 from datetime import datetime
 
 import pandas as pd
 from langchain.tools import tool
 
-from aviatrade.cli.lib import (
-    monitor_prices,
-    monitor_watchlist,
-    scrape_and_save,
-    visualize_prices,
-)
+from aviatrade.agent.monitoring import MONITORS
+from aviatrade.cli.lib import scrape_and_save, visualize_prices
 from aviatrade.db import Database
 from aviatrade.visualization import FlightPriceVisualizer
 
@@ -79,6 +94,9 @@ def get_database() -> tuple[Database | None, str]:
         )
 
 
+# ===========================================================================
+# OPS: разовый скрапинг
+# ===========================================================================
 @tool
 def scrape_and_save_tool(origin: str, destination: str, departure_date: str) -> str:
     """Scrape current flight prices from Aviasales and save to database.
@@ -139,6 +157,9 @@ Possible reasons:
         return f"ERROR: Failed to scrape flights: {e}"
 
 
+# ===========================================================================
+# CHARTS: построение диаграмм
+# ===========================================================================
 @tool
 def visualize_prices_tool(origin: str, destination: str, departure_date: str) -> str:
     """Generate visual price charts from stored flight data.
@@ -186,63 +207,9 @@ Charts have been saved to the /charts directory."""
         return f"ERROR: Failed to generate visualization: {e}"
 
 
-@tool
-def monitor_prices_tool(
-    origin: str, destination: str, departure_date: str, interval_minutes: int = 60
-) -> str:
-    """Start continuous price monitoring at specified intervals.
-
-    WARNING: This is a long-running operation that will block until manually stopped.
-    Only use when the user explicitly requests continuous monitoring.
-
-    Args:
-        origin: Origin airport IATA code (e.g., MOW for Moscow)
-        destination: Destination airport IATA code (e.g., AER for Sochi)
-        departure_date: Departure date in YYYY-MM-DD format
-        interval_minutes: Interval between scrapes in minutes (default: 60)
-
-    Returns:
-        Status message (only returned when monitoring stops)
-    """
-    # Validate inputs
-    origin = origin.upper().strip()
-    destination = destination.upper().strip()
-
-    valid, msg = validate_iata_code(origin)
-    if not valid:
-        return f"ERROR: Invalid origin code. {msg}"
-
-    valid, msg = validate_iata_code(destination)
-    if not valid:
-        return f"ERROR: Invalid destination code. {msg}"
-
-    valid, msg = validate_date(departure_date)
-    if not valid:
-        return f"ERROR: {msg}"
-
-    if interval_minutes < 1:
-        return "ERROR: Interval must be at least 1 minute."
-
-    if interval_minutes > 1440:
-        return "ERROR: Interval cannot exceed 1440 minutes (24 hours)."
-
-    db, error = get_database()
-    if error:
-        return f"ERROR: {error}"
-
-    try:
-        print(f"Starting price monitoring for {origin} -> {destination}")
-        print(f"Interval: {interval_minutes} minutes. Press Ctrl+C to stop.")
-        monitor_prices(origin, destination, departure_date, db, interval_minutes)
-        return "Monitoring stopped."
-    except KeyboardInterrupt:
-        return f"""Monitoring stopped by user.
-Route: {origin} -> {destination}
-Interval: {interval_minutes} minutes"""
-    except Exception as e:
-        return f"ERROR: Monitoring failed: {e}"
-
-
+# ===========================================================================
+# ANALYSIS: анализ временных рядов цен
+# ===========================================================================
 @tool
 def get_price_stats_tool(origin: str, destination: str, departure_date: str) -> str:
     """Get detailed price statistics for flight route analysis.
@@ -444,6 +411,9 @@ Data Points: {total_records} flights analyzed
     return result
 
 
+# ===========================================================================
+# OPS: управление watchlist (несколько направлений)
+# ===========================================================================
 @tool
 def add_to_watchlist_tool(
     origin: str, destination: str, departure_date: str, interval_minutes: int = 60
@@ -499,9 +469,7 @@ def add_to_watchlist_tool(
 
 
 @tool
-def remove_from_watchlist_tool(
-    origin: str, destination: str, departure_date: str
-) -> str:
+def remove_from_watchlist_tool(origin: str, destination: str, departure_date: str) -> str:
     """Remove a flight route from the multi-direction monitoring watchlist.
 
     Args:
@@ -568,19 +536,70 @@ def list_watchlist_tool() -> str:
     return "\n".join(lines)
 
 
+# ===========================================================================
+# OPS: ФОНОВЫЙ мониторинг (неблокирующий — безопасен внутри графа/сервера)
+# ===========================================================================
 @tool
-def monitor_watchlist_tool(default_interval_minutes: int = 60) -> str:
-    """Start continuous monitoring of every route on the watchlist.
+def start_monitor_tool(
+    origin: str, destination: str, departure_date: str, interval_minutes: int = 60
+) -> str:
+    """Start continuous price monitoring for one route IN THE BACKGROUND.
 
-    WARNING: This is a long-running operation that blocks until manually
-    stopped. Only use when the user explicitly requests continuous
-    multi-direction monitoring. Routes are scraped sequentially.
+    Unlike a blocking monitor, this launches a background thread and returns
+    immediately, so it is safe to call from the agent graph / LangGraph server.
+    Use list_active_monitors_tool to check status and stop_monitor_tool to stop.
+
+    Args:
+        origin: Origin airport IATA code (e.g., MOW for Moscow)
+        destination: Destination airport IATA code (e.g., AER for Sochi)
+        departure_date: Departure date in YYYY-MM-DD format
+        interval_minutes: Interval between scrapes in minutes (default: 60)
+
+    Returns:
+        Status message confirming the background monitor started
+    """
+    origin = origin.upper().strip()
+    destination = destination.upper().strip()
+
+    valid, msg = validate_iata_code(origin)
+    if not valid:
+        return f"ERROR: Invalid origin code. {msg}"
+
+    valid, msg = validate_iata_code(destination)
+    if not valid:
+        return f"ERROR: Invalid destination code. {msg}"
+
+    valid, msg = validate_date(departure_date)
+    if not valid:
+        return f"ERROR: {msg}"
+
+    if interval_minutes < 1 or interval_minutes > 1440:
+        return "ERROR: Interval must be between 1 and 1440 minutes."
+
+    db, error = get_database()
+    if error:
+        return f"ERROR: {error}"
+
+    started, message = MONITORS.start_route(
+        origin, destination, departure_date, interval_minutes
+    )
+    prefix = "SUCCESS" if started else "WARNING"
+    return f"{prefix}: {message}"
+
+
+@tool
+def start_watchlist_monitor_tool(default_interval_minutes: int = 60) -> str:
+    """Start continuous monitoring of EVERY watchlist route IN THE BACKGROUND.
+
+    Launches a background thread that scrapes all enabled watchlist routes,
+    honoring each route's own interval, and returns immediately. Safe to call
+    from the agent graph / LangGraph server.
 
     Args:
         default_interval_minutes: Fallback interval for routes without their own
 
     Returns:
-        Status message (only returned when monitoring stops)
+        Status message confirming the background watchlist monitor started
     """
     if default_interval_minutes < 1 or default_interval_minutes > 1440:
         return "ERROR: Interval must be between 1 and 1440 minutes."
@@ -600,12 +619,72 @@ def monitor_watchlist_tool(default_interval_minutes: int = 60) -> str:
             "Add routes with add_to_watchlist_tool first."
         )
 
-    try:
-        print(f"Starting watchlist monitoring for {len(routes)} route(s)")
-        print("Press Ctrl+C to stop.")
-        monitor_watchlist(db, default_interval_minutes=default_interval_minutes)
-        return "Watchlist monitoring stopped."
-    except KeyboardInterrupt:
-        return "Watchlist monitoring stopped by user."
-    except Exception as e:
-        return f"ERROR: Watchlist monitoring failed: {e}"
+    started, message = MONITORS.start_watchlist(default_interval_minutes)
+    prefix = "SUCCESS" if started else "WARNING"
+    return f"{prefix}: {message}"
+
+
+@tool
+def stop_monitor_tool(monitor_key: str) -> str:
+    """Stop a running background monitor by its key.
+
+    Use list_active_monitors_tool first to get the key. For a single route the
+    key looks like 'MOW-AER-2025-12-15'; for the watchlist monitor it is
+    'watchlist'.
+
+    Args:
+        monitor_key: The key of the monitor to stop
+
+    Returns:
+        Status message indicating whether the monitor was stopped
+    """
+    stopped, message = MONITORS.stop(monitor_key.strip())
+    prefix = "SUCCESS" if stopped else "WARNING"
+    return f"{prefix}: {message}"
+
+
+@tool
+def list_active_monitors_tool() -> str:
+    """List all currently running background monitors and their status.
+
+    Returns:
+        A formatted list of active monitors (key, route, interval, cycles run),
+        or a message if none are running
+    """
+    monitors = MONITORS.list_active()
+    if not monitors:
+        return "No background monitors are currently running."
+
+    lines = [f"ACTIVE MONITORS ({len(monitors)}):"]
+    for m in monitors:
+        status = "alive" if m["alive"] else "stopped"
+        line = (
+            f"- [{m['key']}] {m['description']} - every {m['interval_minutes']} min "
+            f"({status}, {m['cycles']} cycle(s), started {m['started_at']}"
+        )
+        if m["last_run"]:
+            line += f", last run {m['last_run']}"
+        if m["last_error"]:
+            line += f", last error: {m['last_error']}"
+        line += ")"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+# ===========================================================================
+# Группировка инструментов по субагентам (импортируется в subagents.py)
+# ===========================================================================
+ANALYSIS_TOOLS = [get_price_stats_tool]
+
+CHARTS_TOOLS = [visualize_prices_tool]
+
+OPS_TOOLS = [
+    scrape_and_save_tool,
+    add_to_watchlist_tool,
+    remove_from_watchlist_tool,
+    list_watchlist_tool,
+    start_monitor_tool,
+    start_watchlist_monitor_tool,
+    stop_monitor_tool,
+    list_active_monitors_tool,
+]

@@ -26,5 +26,67 @@ services:
       timeout: 5s
       retries: 5
 
+  # --- Базы для самого LangGraph Server (его run-state, НЕ данные приложения) ---
+  # LangGraph Server хранит свои потоки/run-ы в собственном Postgres и использует
+  # Redis как внутреннюю очередь. Это отдельный слой от TimescaleDB выше, где
+  # лежат цены на билеты.
+  langgraph-postgres:
+    image: postgres:16
+    container_name: aviatrade_langgraph_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - langgraph_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: aviatrade_langgraph_redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --- LangGraph Server (прод-режим, собирается из нашего Dockerfile) ----------
+  langgraph-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aviatrade_langgraph_server
+    ports:
+      - "8123:8000"  # REST API графа
+    depends_on:
+      postgres:
+        condition: service_healthy
+      langgraph-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Адреса внутренних БД самого LangGraph Server.
+      DATABASE_URI: postgres://postgres:postgres@langgraph-postgres:5432/postgres?sslmode=disable
+      REDIS_URI: redis://redis:6379
+      # Доступ графа к данным приложения (TimescaleDB сервиса `postgres`).
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: flight_prices
+      DB_USER: flight_user
+      DB_PASSWORD: flight_password
+      # Модель агента (читается make_model внутри графа).
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      MODEL_NAME: ${MODEL_NAME:-openai/gpt-4o-mini}
+      # LangSmith — опциональная трассировка прогонов графа.
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-aviatrade}
+
 volumes:
   postgres_data:
+  langgraph_postgres_data:

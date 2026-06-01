@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AviaTrade is a Python flight price monitoring system for Aviasales.ru. It scrapes flight prices, stores them in TimescaleDB (PostgreSQL + time-series extension), and generates statistical visualizations for price trend analysis. It also includes an AI agent (LangChain `create_agent`) that exposes scraping/visualization/stats as tools.
+AviaTrade is a Python flight price monitoring system for Aviasales.ru. It scrapes flight prices, stores them in TimescaleDB (PostgreSQL + time-series extension), and generates statistical visualizations for price trend analysis. It also includes an AI agent built as a **LangGraph router + subagents graph** (runnable via `langgraph dev` / LangGraph Server) that exposes price analysis, visualization, and operational tools (scraping, watchlist management, background monitoring).
 
 ## Commands
 
@@ -51,6 +51,20 @@ uv run aviatrade --action agent
 uv run aviatrade --tui
 ```
 
+### Running the Agent Graph (LangGraph)
+```bash
+# Local dev server + LangGraph Studio (needs the venv on Python 3.11–3.13)
+uv run --extra langgraph langgraph dev
+
+# Production: LangGraph Server in Docker (langgraph-server service)
+docker-compose up -d --build
+```
+The graph entrypoint is declared in `langgraph.json` (`aviatrade_agent` →
+`src/aviatrade/agent/graph.py:graph`). The Docker image (`Dockerfile`) installs
+Chromium so the ops subagent can scrape inside the container; the
+`langgraph-server` service gets its own Postgres (`langgraph-postgres`) + Redis
+for run-state, separate from the TimescaleDB that stores prices.
+
 ## Project Structure
 
 ```
@@ -64,10 +78,14 @@ aviatrade/
 │       ├── core/               # Core configuration
 │       │   ├── __init__.py
 │       │   └── config.py       # Environment configuration
-│       ├── agent/              # AI agent (LangChain create_agent)
-│       │   ├── __init__.py
-│       │   ├── agent.py        # AgentFactory.build_agent + system prompt
-│       │   └── tool_wrappers.py # Scrape/visualize/monitor/stats tools
+│       ├── agent/              # AI agent (LangGraph router + subagents)
+│       │   ├── __init__.py     # exports `graph` + AgentFactory
+│       │   ├── graph.py        # router node + subagent nodes → compiled `graph`
+│       │   ├── subagents.py    # make_model + analysis/charts/ops agent factories
+│       │   ├── state.py        # State (messages+route) + Context (Runtime config)
+│       │   ├── tools.py        # @tool functions grouped per subagent
+│       │   ├── monitoring.py   # BackgroundMonitorManager (non-blocking monitors)
+│       │   └── agent.py        # AgentFactory shim (compat for CLI/TUI)
 │       ├── db/                 # Database layer
 │       │   ├── __init__.py
 │       │   ├── models.py       # SQLAlchemy ORM models
@@ -83,7 +101,9 @@ aviatrade/
 ├── configs/
 │   └── .env.example            # Environment variables template
 ├── charts/                     # Output directory for generated charts
-├── docker-compose.yml          # TimescaleDB container configuration
+├── docker-compose.yml          # TimescaleDB + LangGraph Server (postgres/redis)
+├── Dockerfile                  # LangGraph Server image (+ Chromium for scraping)
+├── langgraph.json              # Graph entrypoint for langgraph dev / Server
 ├── pyproject.toml              # Project metadata + dependencies (uv)
 ├── run.py                      # Development entry point
 ├── README.md
@@ -103,9 +123,12 @@ cli/main.py
     → visualization/visualizer.py (matplotlib/seaborn)
     → /charts/*.png
 
-cli/lib.py run_agent / tui
-    → agent/agent.py (LangChain create_agent)
-    → agent/tool_wrappers.py (wraps cli/lib.py functions as tools)
+cli/lib.py run_agent / tui  →  agent/agent.py (AgentFactory shim)
+langgraph dev / Server      →  langgraph.json
+    → agent/graph.py (router node → analysis/charts/ops/chat subagent nodes)
+        → agent/subagents.py (create_agent factories, model/prompts from Runtime[Context])
+            → agent/tools.py (wraps cli/lib.py functions as @tool, grouped per subagent)
+            → agent/monitoring.py (BackgroundMonitorManager for non-blocking monitors)
 ```
 
 ### Key Components
@@ -116,14 +139,17 @@ cli/lib.py run_agent / tui
 - **scraper/aviasales.py**: `AviasalesScraper` uses Botasaurus browser automation with multi-selector CSS approach
 - **visualization/visualizer.py**: `FlightPriceVisualizer` generates 4-panel analysis charts
 - **cli/main.py**: CLI entry point with modes: scrape, visualize, monitor, both, agent (plus `--tui`)
-- **agent/agent.py**: `AgentFactory.build_agent` builds a LangChain `create_agent` ReAct agent (OpenRouter via `ChatOpenAI`); invoke with `{"messages": [...]}`
+- **agent/graph.py**: `StateGraph(State, context_schema=Context)` — a `router` node (structured output → analysis/charts/ops/chat) with subagent nodes; exported as `graph` and invoked with `{"messages": [...]}`
+- **agent/subagents.py**: `make_model` (OpenRouter via `ChatOpenAI`) + `lru_cache`d `create_agent` factories per subagent; model/temperature/system prompts come from `runtime.context` (`Runtime[Context]`) so they can be hot-swapped per invocation / in LangGraph Studio
+- **agent/monitoring.py**: `BackgroundMonitorManager` runs continuous monitoring in daemon threads (non-blocking) so the graph never hangs; ops tools start/stop/list monitors
+- **agent/agent.py**: `AgentFactory.build_agent` is a thin compat shim returning the compiled `graph` (keeps CLI `run_agent` and the TUI working unchanged)
 
 ### Tech Stack
 - **Botasaurus**: Selenium-like browser automation for web scraping
 - **SQLAlchemy + psycopg2**: PostgreSQL ORM
 - **matplotlib/seaborn/pandas**: Data visualization and analysis
-- **LangChain (`create_agent`) + langchain-openai**: AI agent over OpenRouter
-- **Docker Compose**: TimescaleDB container (PostgreSQL 16 + time-series extension)
+- **LangGraph (`StateGraph` + `Runtime[Context]`) + LangChain `create_agent` + langchain-openai**: router/subagents agent over OpenRouter, runnable via `langgraph dev` / LangGraph Server
+- **Docker Compose**: TimescaleDB container (PostgreSQL 16 + time-series extension) + LangGraph Server (own Postgres/Redis)
 - **uv**: dependency and environment management
 
 ### Database Schema
