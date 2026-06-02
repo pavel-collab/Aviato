@@ -18,9 +18,9 @@ rabbitmq:
   job_queue: aviatrade_jobs
 
 scraper:
-  # local — CLI скрапит и сохраняет сам (нужен Chromium, не нужен брокер);
-  # rabbitmq — CLI публикует задачу, собирает отдельный сервис scraper.
-  mode: local
+  # rabbitmq — CLI публикует задачу, собирает отдельный сервис scraper (дефолт);
+  # local — legacy: CLI скрапит и сохраняет сам (нужен Chromium, не нужен брокер).
+  mode: rabbitmq
   headless: true
   max_flights: 20
 

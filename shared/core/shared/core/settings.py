@@ -120,10 +120,11 @@ class ScraperSettings(BaseModel):
     """Как запускать скрапинг и параметры самого скрапера.
 
     mode:
-      - ``rabbitmq`` — публиковать задачу в очередь (прод; сервис scraper её берёт);
-      - ``local``    — скрапить и сохранять в процессе вызова (dev/CLI/тесты без брокера).
+      - ``rabbitmq`` — публиковать задачу в очередь (дефолт; сервис scraper её берёт);
+      - ``local``    — legacy: скрапить и сохранять в процессе вызова (нужен Chromium
+        на хосте, брокер не нужен; синхронный saved_count).
     """
 
-    mode: Literal["rabbitmq", "local"] = "local"
+    mode: Literal["rabbitmq", "local"] = "rabbitmq"
     headless: bool = True
     max_flights: int = 20
