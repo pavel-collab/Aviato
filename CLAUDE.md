@@ -81,8 +81,10 @@ uv run python scripts/cli.py --origin MOW --destination LED --date 2025-12-15 --
 uv run python scripts/cli.py --action watch-list
 uv run python scripts/cli.py --action agent          # talks to the LangGraph server via SDK
 
-# Agent graph locally (LangGraph Studio)
-uv run --project projects/agent --extra langgraph langgraph dev
+# Agent graph locally (LangGraph Studio).
+# langgraph dev resolves the graph path in langgraph.json relative to the CWD, so
+# run it with CWD = projects/agent (use uv's --directory), NOT from the repo root.
+uv run --directory projects/agent --extra langgraph langgraph dev
 
 # Backend + worker locally (need RabbitMQ/Redis up; agent for chat)
 uv run --project projects/backend python -m src           # API on :8000

@@ -105,7 +105,11 @@ docker compose --profile infra up -d --scale scraper=3
 docker compose --profile infra up -d
 
 uv sync --project projects/agent --extra langgraph
-uv run --project projects/agent --extra langgraph langgraph dev
+
+# Пути к графу в langgraph.json резолвятся относительно рабочей директории,
+# поэтому запускать нужно с CWD = projects/agent (флаг uv --directory), а не из
+# корня репозитория — иначе ./aviatrade_agent/graph.py не найдётся.
+uv run --directory projects/agent --extra langgraph langgraph dev
 ```
 
 Откроется LangGraph Studio с графом `aviatrade_agent`. Агент читает
