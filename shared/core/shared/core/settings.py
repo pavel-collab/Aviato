@@ -135,3 +135,17 @@ class ScraperSettings(BaseModel):
     mode: Literal["rabbitmq", "local"] = "rabbitmq"
     headless: bool = True
     max_flights: int = 20
+
+
+class ChartsSettings(BaseModel):
+    """Куда сохранять PNG-графики и по какому публичному URL их отдаёт backend.
+
+    Граф агента пишет картинку в ``output_dir`` (том, общий с backend), а в ответ
+    возвращает markdown-ссылку ``{public_base_url}/{файл}.png``. Backend отдаёт этот
+    каталог статикой (mount ``/static``). ``public_base_url`` должен быть достижим из
+    БРАУЗЕРА пользователя (OpenWebUI рендерит ``<img>``), поэтому это host-facing адрес
+    backend (``localhost:8000``), а НЕ имя сервиса в сети compose.
+    """
+
+    output_dir: str = "charts"
+    public_base_url: str = "http://localhost:8000/static"

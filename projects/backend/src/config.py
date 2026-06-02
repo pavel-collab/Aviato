@@ -8,6 +8,7 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 from shared.core.settings import (
     BaseServiceSettings,
+    ChartsSettings,
     DatabaseSettings,
     LangGraphSettings,
     LoggingSettings,
@@ -28,6 +29,7 @@ class BackendSettings(BaseServiceSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
     scraper: ScraperSettings = Field(default_factory=ScraperSettings)
+    charts: ChartsSettings = Field(default_factory=ChartsSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
     host: str = "0.0.0.0"
     port: int = 8000

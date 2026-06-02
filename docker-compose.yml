@@ -137,6 +137,8 @@ services:
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-aviatrade}
     volumes:
       - ./projects/agent/config.docker.yaml:/app/projects/agent/config.docker.yaml:ro
+      # Общий с backend том для PNG-графиков: агент пишет — backend отдаёт статикой.
+      - ./charts:/app/charts
 
   # --- FastAPI backend (внешний API) -----------------------------------------
   backend:
@@ -161,7 +163,8 @@ services:
       PYTHONUNBUFFERED: "1"
     volumes:
       - ./projects/backend/config.docker.yaml:/app/projects/backend/config.docker.yaml:ro
-      - ./charts:/app/projects/backend/charts
+      # Тот же том, что у agent: backend отдаёт сохранённые PNG как /static/<file>.png.
+      - ./charts:/app/charts
     command: ["python", "-m", "src"]
 
   # --- Worker: chat-очередь → граф (через SDK) -------------------------------

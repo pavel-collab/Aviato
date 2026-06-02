@@ -14,6 +14,7 @@
 local-режиме собирается на месте. Фоновый мониторинг — неблокирующий (потоки).
 """
 
+import os
 import re
 from datetime import datetime
 
@@ -154,10 +155,10 @@ def scrape_and_save_tool(origin: str, destination: str, departure_date: str) -> 
 # ===========================================================================
 @tool
 def visualize_prices_tool(origin: str, destination: str, departure_date: str) -> str:
-    """Generate visual price charts from stored flight data.
+    """Generate a visual price chart from stored flight data.
 
-    Creates matplotlib visualizations showing price trends, airline comparisons,
-    and other insights. Charts are saved to the /charts directory.
+    Creates a matplotlib visualization (price trends, airline comparison, price
+    distribution) and returns a markdown image link the user can see in the chat.
 
     Args:
         origin: Origin airport IATA code (e.g., MOW for Moscow)
@@ -165,7 +166,7 @@ def visualize_prices_tool(origin: str, destination: str, departure_date: str) ->
         departure_date: Departure date in YYYY-MM-DD format
 
     Returns:
-        Status message indicating success or failure
+        A markdown image link to the generated chart, or an error/warning message
     """
     origin = origin.upper().strip()
     destination = destination.upper().strip()
@@ -185,15 +186,26 @@ def visualize_prices_tool(origin: str, destination: str, departure_date: str) ->
         return f"ERROR: {error}"
 
     try:
-        visualizer = FlightPriceVisualizer()
-        visualize_prices(origin, destination, departure_date, db, visualizer)
-        return f"""SUCCESS: Price visualization charts generated.
-Route: {origin} -> {destination}
-Date: {departure_date}
-
-Charts have been saved to the /charts directory."""
+        visualizer = FlightPriceVisualizer(output_dir=config.charts.output_dir)
+        chart_path = visualize_prices(origin, destination, departure_date, db, visualizer)
     except Exception as e:
         return f"ERROR: Failed to generate visualization: {e}"
+
+    if not chart_path:
+        return (
+            f"WARNING: No stored price data for {origin} -> {destination} on "
+            f"{departure_date}. Collect data first with scrape_and_save_tool, then retry."
+        )
+
+    filename = os.path.basename(chart_path)
+    url = f"{config.charts.public_base_url.rstrip('/')}/{filename}"
+    # Возвращаем готовую markdown-картинку и просим модель вставить её ДОСЛОВНО —
+    # OpenWebUI отрендерит <img> по этой ссылке (backend отдаёт PNG статикой /static).
+    return (
+        f"SUCCESS: Price chart generated for {origin} -> {destination} on {departure_date}. "
+        "Include the following markdown image in your reply VERBATIM so the user can see it:\n\n"
+        f"![Price chart {origin}-{destination} {departure_date}]({url})"
+    )
 
 
 # ===========================================================================

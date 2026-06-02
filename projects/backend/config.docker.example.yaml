@@ -31,5 +31,11 @@ scraper:
   headless: true
   max_flights: 20
 
+charts:
+  # Тот же том, что монтируется агенту (./charts:/app/charts) — backend отдаёт
+  # сохранённые PNG как /static/<file>.png.
+  output_dir: /app/charts
+  public_base_url: "http://localhost:8000/static"
+
 host: "0.0.0.0"
 port: 8000

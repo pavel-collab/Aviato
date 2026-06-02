@@ -23,6 +23,12 @@ scraper:
   headless: true
   max_flights: 20
 
+charts:
+  # Общий с backend том (см. docker-compose: ./charts:/app/charts).
+  output_dir: /app/charts
+  # Публичный host-facing URL backend (его видит браузер в OpenWebUI).
+  public_base_url: "http://localhost:8000/static"
+
 llm:
   api_key: "sk-..."
   base_url: "https://openrouter.ai/api/v1"

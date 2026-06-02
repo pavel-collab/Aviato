@@ -14,7 +14,7 @@ def visualize_prices(
     departure_date: str,
     db: Any,
     visualizer: FlightPriceVisualizer,
-) -> None:
+) -> str | None:
     """Visualize price history.
 
     Args:
@@ -23,6 +23,9 @@ def visualize_prices(
         departure_date: Departure date in YYYY-MM-DD format.
         db: Database instance (duck-typed; provides get_price_history).
         visualizer: FlightPriceVisualizer instance.
+
+    Returns:
+        Path to the saved chart image, or None if there was no data / on error.
     """
     logger.info("Getting price history from database")
 
@@ -33,11 +36,14 @@ def visualize_prices(
             logger.warning(
                 "No data in database for visualization. First collect data with: --action scrape"
             )
-            return
+            return None
 
         logger.info(f"Found records in database: {len(flight_prices)}")
 
         visualizer.print_statistics(flight_prices)
-        visualizer.plot_price_history(flight_prices, origin, destination, departure_date)
+        return visualizer.plot_price_history(
+            flight_prices, origin, destination, departure_date
+        )
     except Exception as e:
         logger.exception(f"Error during visualization: {e}")
+        return None

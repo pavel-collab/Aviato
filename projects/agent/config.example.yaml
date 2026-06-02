@@ -24,6 +24,13 @@ scraper:
   headless: true
   max_flights: 20
 
+charts:
+  # `langgraph dev` запускается с CWD=projects/agent, поэтому ../../charts — это
+  # каталог charts/ в корне репо (тот же путь резолвит и backend на хосте).
+  output_dir: "../../charts"
+  # Host-facing URL запущенного на хосте backend (его открывает браузер OpenWebUI).
+  public_base_url: "http://localhost:8000/static"
+
 llm:
   api_key: "sk-..."
   base_url: "https://openrouter.ai/api/v1"

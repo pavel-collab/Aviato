@@ -7,6 +7,7 @@ backend (синхронно, в пуле потоков). Тяжёлый скр�
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Any
 
@@ -25,8 +26,17 @@ def run_visualize(origin: str, destination: str, departure_date: str) -> dict[st
     history = db.get_price_history(origin, destination, departure_date)
     if not history:
         return {"generated": False, "reason": "no data for this route/date"}
-    visualize_prices(origin, destination, departure_date, db, FlightPriceVisualizer())
-    return {"generated": True, "data_points": len(history), "output_dir": "charts"}
+    path = visualize_prices(
+        origin,
+        destination,
+        departure_date,
+        db,
+        FlightPriceVisualizer(output_dir=config.charts.output_dir),
+    )
+    if not path:
+        return {"generated": False, "reason": "no data for this route/date"}
+    url = f"{config.charts.public_base_url.rstrip('/')}/{os.path.basename(path)}"
+    return {"generated": True, "data_points": len(history), "url": url}
 
 
 # --- Статистика -------------------------------------------------------------

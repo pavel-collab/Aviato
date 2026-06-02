@@ -13,6 +13,7 @@ from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 from shared.core.settings import (
     BaseServiceSettings,
+    ChartsSettings,
     DatabaseSettings,
     LLMSettings,
     LoggingSettings,
@@ -30,6 +31,7 @@ class AgentSettings(BaseServiceSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     rabbitmq: RabbitMQSettings = Field(default_factory=RabbitMQSettings)
     scraper: ScraperSettings = Field(default_factory=ScraperSettings)
+    charts: ChartsSettings = Field(default_factory=ChartsSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 

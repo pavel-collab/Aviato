@@ -11,9 +11,11 @@ from __future__ import annotations
 import re
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from shared.core import setup_logging
@@ -44,6 +46,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AviaTrade Backend", version="0.1.0", lifespan=lifespan)
 app.include_router(openai_router)
+
+# Статика с PNG-графиками: граф агента сохраняет картинку в общий том, а здесь мы
+# отдаём её по публичному URL (config.charts.public_base_url → /static/<file>.png),
+# чтобы OpenWebUI мог отрендерить <img> прямо в чате. Префикс /static, а НЕ /charts,
+# чтобы не конфликтовать с ручкой POST /charts.
+_charts_dir = Path(config.charts.output_dir)
+_charts_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_charts_dir)), name="charts-static")
 
 
 class RouteRequest(BaseModel):

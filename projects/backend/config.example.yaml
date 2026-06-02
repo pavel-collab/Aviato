@@ -31,5 +31,11 @@ scraper:
   headless: true
   max_flights: 20
 
+charts:
+  # backend запускается с CWD=projects/backend, поэтому ../../charts — это каталог
+  # charts/ в корне репо (тот же, куда пишет агент через `langgraph dev`).
+  output_dir: "../../charts"
+  public_base_url: "http://localhost:8000/static"
+
 host: "0.0.0.0"
 port: 8000
