@@ -21,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field
 
+from aviatrade_agent.config import config
 from aviatrade_agent.state import Context, State
 from aviatrade_agent.subagents import (
     DEFAULT_ANALYSIS_SYSTEM,
@@ -31,6 +32,11 @@ from aviatrade_agent.subagents import (
     make_model,
     make_ops_agent,
 )
+from shared.core import setup_logging
+
+# Граф импортируется langgraph-api при старте — настраиваем логирование здесь,
+# чтобы логи инструментов (shared.* через loguru) были видны в контейнере агента.
+setup_logging(config.logging.level)
 
 
 class RouterDecision(BaseModel):

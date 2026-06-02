@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import threading
 import time
-import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from loguru import logger
 from shared.core.settings import DatabaseSettings, RabbitMQSettings, ScraperSettings
 from shared.services.db_factory import get_database
 from shared.services.scraping import dispatch_scrape
@@ -214,7 +214,7 @@ class BackgroundMonitorManager:
                 self._mark_cycle(key)
             except Exception as exc:  # noqa: BLE001 - фоновый поток не должен падать молча
                 self._mark_error(key, f"{exc}")
-                traceback.print_exc()
+                logger.exception(f"[monitor {key}] dispatch failed: {exc}")
             if not self._sleep_interruptible(stop_event, interval_minutes):
                 break
 
@@ -244,12 +244,14 @@ class BackgroundMonitorManager:
                         )
                     except Exception as exc:  # noqa: BLE001
                         self._mark_error(key, f"{route.origin}-{route.destination}: {exc}")
-                        traceback.print_exc()
+                        logger.exception(
+                            f"[monitor {key}] {route.origin}-{route.destination} dispatch failed: {exc}"
+                        )
                     next_due[rkey] = time.monotonic() + interval * 60
                 self._mark_cycle(key)
             except Exception as exc:  # noqa: BLE001
                 self._mark_error(key, f"{exc}")
-                traceback.print_exc()
+                logger.exception(f"[monitor {key}] cycle failed: {exc}")
             if not self._sleep_interruptible(stop_event, max(1, default_interval_minutes // 2)):
                 break
 

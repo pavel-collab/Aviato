@@ -15,6 +15,7 @@ from shared.core.settings import (
     BaseServiceSettings,
     DatabaseSettings,
     LLMSettings,
+    LoggingSettings,
     RabbitMQSettings,
     ScraperSettings,
     resolve_settings_path,
@@ -30,6 +31,7 @@ class AgentSettings(BaseServiceSettings):
     rabbitmq: RabbitMQSettings = Field(default_factory=RabbitMQSettings)
     scraper: ScraperSettings = Field(default_factory=ScraperSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
 
 config = AgentSettings()

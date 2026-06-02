@@ -14,11 +14,11 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-import traceback
 import uuid
 from datetime import datetime
 
 import aio_pika
+from loguru import logger
 from shared.core.settings import RabbitMQSettings, ScraperSettings
 
 from shared.scraper import AviasalesScraper, ScrapeTask
@@ -29,11 +29,9 @@ from shared.scraper import AviasalesScraper, ScrapeTask
 # ---------------------------------------------------------------------------
 def scrape_and_save_local(origin: str, destination: str, departure_date: str, db) -> int:
     """Scrape flights and save to database. Returns number of saved flights."""
-    print(f"\n{'=' * 60}")
-    print("Starting flight data collection")
-    print(f"Route: {origin} -> {destination}")
-    print(f"Departure date: {departure_date}")
-    print(f"{'=' * 60}\n")
+    logger.info(
+        f"Starting flight data collection: {origin} -> {destination} on {departure_date}"
+    )
 
     try:
         search_params = {
@@ -45,10 +43,10 @@ def scrape_and_save_local(origin: str, destination: str, departure_date: str, db
         flights = AviasalesScraper.scrape_flights(search_params)
 
         if not flights:
-            print("No flights found. Possible reasons:")
-            print("   - Invalid city codes (use IATA codes, e.g.: MOW, LED)")
-            print("   - Aviasales changed site structure")
-            print("   - No available flights on this date")
+            logger.warning(
+                "No flights found. Possible reasons: invalid city codes (use IATA, e.g. MOW, LED), "
+                "Aviasales changed site structure, or no available flights on this date"
+            )
             return 0
 
         saved_count = 0
@@ -71,14 +69,13 @@ def scrape_and_save_local(origin: str, destination: str, departure_date: str, db
                 db.add_flight_price(flight_for_db)
                 saved_count += 1
             except Exception as e:
-                print(f"Warning: Error saving flight: {e}")
+                logger.warning(f"Error saving flight: {e}")
 
-        print(f"\nSuccessfully saved flights: {saved_count} of {len(flights)}")
+        logger.info(f"Successfully saved flights: {saved_count} of {len(flights)}")
         return saved_count
 
     except Exception as e:
-        print(f"Error during data collection: {e}")
-        traceback.print_exc()
+        logger.exception(f"Error during data collection: {e}")
         return 0
 
 
@@ -142,30 +139,27 @@ def monitor_route(
     interval_minutes: int = 60,
 ) -> None:
     """Мониторить один маршрут с заданным интервалом (блокирующий цикл, Ctrl+C)."""
-    print(f"\n{'=' * 60}")
-    print("MONITORING MODE")
-    print(f"Route: {origin} -> {destination}")
-    print(f"Departure date: {departure_date}")
-    print(f"Collection interval: {interval_minutes} minutes")
-    print(f"{'=' * 60}\n")
+    logger.info(
+        f"Monitoring mode: {origin} -> {destination} on {departure_date}, "
+        f"interval {interval_minutes} min"
+    )
 
     iteration = 1
     try:
         while True:
-            print(f"\nIteration #{iteration} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            logger.info(f"Iteration #{iteration}")
             dispatch_scrape(
                 ScrapeTask(origin=origin, destination=destination, departure_date=departure_date),
                 scraper=scraper,
                 rabbitmq=rabbitmq,
                 db=db,
             )
-            print(f"Iteration #{iteration} dispatched")
+            logger.info(f"Iteration #{iteration} dispatched")
             iteration += 1
-            print(f"\nWaiting {interval_minutes} minutes until next collection...")
+            logger.info(f"Waiting {interval_minutes} minutes until next collection...")
             time.sleep(interval_minutes * 60)
     except KeyboardInterrupt:
-        print("\n\nMonitoring stopped by user")
-        print(f"Total iterations completed: {iteration - 1}")
+        logger.info(f"Monitoring stopped by user. Total iterations completed: {iteration - 1}")
 
 
 def monitor_watchlist(
@@ -181,10 +175,7 @@ def monitor_watchlist(
     Watchlist перечитывается в начале каждого цикла; каждый маршрут собирается не
     чаще своего ``interval_min`` (или ``default_interval_minutes``).
     """
-    print(f"\n{'=' * 60}")
-    print("WATCHLIST MONITORING MODE")
-    print(f"Default interval: {default_interval_minutes} minutes")
-    print(f"{'=' * 60}\n")
+    logger.info(f"Watchlist monitoring mode, default interval {default_interval_minutes} min")
 
     next_due: dict[tuple[str, str, str], float] = {}
     cycle = 1
@@ -194,8 +185,10 @@ def monitor_watchlist(
             routes = db.get_watchlist(enabled_only=True)
 
             if not routes:
-                print("Watchlist is empty. Add routes with --action watch-add.")
-                print(f"Re-checking in {default_interval_minutes} minutes...")
+                logger.info(
+                    f"Watchlist is empty (add routes with --action watch-add). "
+                    f"Re-checking in {default_interval_minutes} minutes..."
+                )
                 time.sleep(default_interval_minutes * 60)
                 continue
 
@@ -207,10 +200,7 @@ def monitor_watchlist(
                     due_routes.append(route)
 
             if due_routes:
-                print(
-                    f"\nCycle #{cycle} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
-                    f"- {len(due_routes)} route(s) due"
-                )
+                logger.info(f"Cycle #{cycle} - {len(due_routes)} route(s) due")
                 for route in due_routes:
                     key = (route.origin, route.destination, str(route.departure_date))
                     interval = route.interval_min or default_interval_minutes
@@ -235,9 +225,8 @@ def monitor_watchlist(
             upcoming = [t for k, t in next_due.items() if k in active_keys and t > now]
             sleep_seconds = min(upcoming) - now if upcoming else default_interval_minutes * 60
             sleep_seconds = max(1.0, min(sleep_seconds, default_interval_minutes * 60))
-            print(f"Sleeping {sleep_seconds / 60:.1f} minutes until next due route...")
+            logger.info(f"Sleeping {sleep_seconds / 60:.1f} minutes until next due route...")
             time.sleep(sleep_seconds)
 
     except KeyboardInterrupt:
-        print("\n\nWatchlist monitoring stopped by user")
-        print(f"Total cycles completed: {cycle - 1}")
+        logger.info(f"Watchlist monitoring stopped by user. Total cycles completed: {cycle - 1}")

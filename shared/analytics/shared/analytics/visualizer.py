@@ -7,6 +7,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+from loguru import logger
 
 # Configure plot style
 sns.set_theme(style="whitegrid")
@@ -45,7 +46,7 @@ class FlightPriceVisualizer:
             Path to saved chart image, or None if no data.
         """
         if not flight_prices:
-            print("No data to visualize")
+            logger.warning("No data to visualize")
             return None
 
         # Convert to DataFrame
@@ -164,7 +165,7 @@ class FlightPriceVisualizer:
         filename = f"{origin}_{destination}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         filepath = self.output_dir / filename
         plt.savefig(filepath, dpi=300, bbox_inches="tight")
-        print(f"Chart saved: {filepath}")
+        logger.info(f"Chart saved: {filepath}")
 
         plt.close(fig)
 
@@ -177,19 +178,19 @@ class FlightPriceVisualizer:
             flight_prices: List of FlightPrice ORM objects.
         """
         if not flight_prices:
-            print("No data for statistics")
+            logger.warning("No data for statistics")
             return
 
         prices = [fp.price for fp in flight_prices]
 
-        print("\n" + "=" * 60)
-        print("PRICE STATISTICS")
-        print("=" * 60)
-        print(f"Total flights found: {len(flight_prices)}")
-        print(f"Minimum price: {min(prices):.2f} RUB")
-        print(f"Maximum price: {max(prices):.2f} RUB")
-        print(f"Average price: {sum(prices) / len(prices):.2f} RUB")
-        print(f"Median price: {sorted(prices)[len(prices) // 2]:.2f} RUB")
+        lines = [
+            "PRICE STATISTICS",
+            f"Total flights found: {len(flight_prices)}",
+            f"Minimum price: {min(prices):.2f} RUB",
+            f"Maximum price: {max(prices):.2f} RUB",
+            f"Average price: {sum(prices) / len(prices):.2f} RUB",
+            f"Median price: {sorted(prices)[len(prices) // 2]:.2f} RUB",
+        ]
 
         # Statistics by airline
         airlines: dict[str, list[float]] = {}
@@ -199,12 +200,12 @@ class FlightPriceVisualizer:
                 airlines[airline] = []
             airlines[airline].append(fp.price)
 
-        print("\nPrices by airline:")
+        lines.append("Prices by airline:")
         for airline, airline_prices in sorted(airlines.items(), key=lambda x: min(x[1])):
             avg = sum(airline_prices) / len(airline_prices)
-            print(
+            lines.append(
                 f"  {airline}: from {min(airline_prices):.2f} to {max(airline_prices):.2f} RUB "
                 f"(avg: {avg:.2f})"
             )
 
-        print("=" * 60 + "\n")
+        logger.info("\n".join(lines))

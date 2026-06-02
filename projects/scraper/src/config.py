@@ -9,6 +9,7 @@ from pydantic_settings import SettingsConfigDict
 from shared.core.settings import (
     BaseServiceSettings,
     DatabaseSettings,
+    LoggingSettings,
     RabbitMQSettings,
     RedisSettings,
     resolve_settings_path,
@@ -23,6 +24,7 @@ class ScraperServiceSettings(BaseServiceSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     rabbitmq: RabbitMQSettings = Field(default_factory=RabbitMQSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
     # Одновременно обрабатываемых задач на одну реплику (браузер — тяжёлый).
     prefetch_count: int = 1
 

@@ -13,7 +13,9 @@ import asyncio
 import json
 
 import aio_pika
+from loguru import logger
 
+from shared.core import setup_logging
 from src.config import config
 from src.lg_client import aclose_client, run_graph
 from src.mq import aclose_mq, set_job
@@ -37,6 +39,7 @@ async def _handle(message: aio_pika.abc.AbstractIncomingMessage) -> None:
             result = await _execute(job_type, payload)
             await set_job(job_id, {"status": "done", "type": job_type, "result": result})
         except Exception as exc:  # демо: фиксируем ошибку в статусе задачи
+            logger.exception(f"[worker] job {job_id} failed: {exc}")
             await set_job(
                 job_id,
                 {"status": "error", "type": job_type, "result": None, "error": str(exc)},
@@ -44,13 +47,14 @@ async def _handle(message: aio_pika.abc.AbstractIncomingMessage) -> None:
 
 
 async def main() -> None:
+    setup_logging(config.logging.level)
     connection = await aio_pika.connect_robust(config.rabbitmq.url)
     try:
         channel = await connection.channel()
         await channel.set_qos(prefetch_count=4)
         queue = await channel.declare_queue(config.rabbitmq.job_queue, durable=True)
         await queue.consume(_handle)
-        print(f"[worker] слушаю очередь '{config.rabbitmq.job_queue}'…")
+        logger.info(f"[worker] слушаю очередь '{config.rabbitmq.job_queue}'…")
         await asyncio.Future()
     finally:
         await aclose_client()

@@ -13,6 +13,7 @@ import json
 
 import aio_pika
 import redis.asyncio as aioredis
+from loguru import logger
 
 from shared.scraper import ScrapeTask
 from shared.services import get_database, scrape_and_save_local
@@ -38,7 +39,7 @@ class ScraperConsumer:
         async with message.process(requeue=False):
             data = json.loads(message.body)
             task = ScrapeTask(**data)
-            print(f"[scraper] task: {task.origin}->{task.destination} {task.departure_date}")
+            logger.info(f"[scraper] task: {task.origin}->{task.destination} {task.departure_date}")
 
             if task.job_id:
                 await _set_job(self._redis, task.job_id, {"status": "running", "saved_count": 0})
@@ -55,7 +56,7 @@ class ScraperConsumer:
                     await _set_job(
                         self._redis, task.job_id, {"status": "done", "saved_count": saved}
                     )
-                print(f"[scraper] done: saved {saved} flights")
+                logger.info(f"[scraper] done: saved {saved} flights")
             except Exception as exc:  # noqa: BLE001 - фиксируем и ack-аем, без бесконечного requeue
                 if task.job_id:
                     await _set_job(
@@ -63,7 +64,7 @@ class ScraperConsumer:
                         task.job_id,
                         {"status": "error", "saved_count": 0, "error": str(exc)},
                     )
-                print(f"[scraper] error: {exc}")
+                logger.error(f"[scraper] error: {exc}")
 
     async def start(self) -> None:
         self._connection = await aio_pika.connect_robust(config.rabbitmq.url)
@@ -71,7 +72,7 @@ class ScraperConsumer:
         await channel.set_qos(prefetch_count=config.prefetch_count)
         queue = await channel.declare_queue(config.rabbitmq.scrape_queue, durable=True)
         await queue.consume(self._handle)
-        print(f"[scraper] listening on queue '{config.rabbitmq.scrape_queue}'…")
+        logger.info(f"[scraper] listening on queue '{config.rabbitmq.scrape_queue}'…")
 
     async def close(self) -> None:
         if self._connection is not None:

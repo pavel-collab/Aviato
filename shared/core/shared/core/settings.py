@@ -18,12 +18,13 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     YamlConfigSettingsSource,
 )
+from shared.core.logging import LogLevel
 
 
 def resolve_settings_path(fallback: str = "config.yaml") -> str:
@@ -114,6 +115,12 @@ class LangGraphSettings(BaseModel):
 
     url: str = "http://localhost:8123"
     graph_id: str = "aviatrade_agent"
+
+
+class LoggingSettings(BaseModel):
+    """Уровень логирования сервиса (loguru). Принимает строку ``"INFO"`` или число."""
+
+    level: LogLevel = Field(default=LogLevel.INFO)
 
 
 class ScraperSettings(BaseModel):

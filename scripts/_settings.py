@@ -18,6 +18,7 @@ from shared.core.settings import (
     DatabaseSettings,
     LangGraphSettings,
     LLMSettings,
+    LoggingSettings,
     RabbitMQSettings,
     ScraperSettings,
     resolve_settings_path,
@@ -35,6 +36,7 @@ class CliSettings(BaseServiceSettings):
     scraper: ScraperSettings = Field(default_factory=ScraperSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
 
 config = CliSettings()

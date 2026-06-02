@@ -16,8 +16,10 @@ import argparse
 from datetime import datetime
 
 from _settings import config
+from loguru import logger
 
 from shared.analytics import FlightPriceVisualizer, visualize_prices
+from shared.core import setup_logging
 from shared.scraper import ScrapeTask
 from shared.services import (
     dispatch_scrape,
@@ -38,16 +40,16 @@ def run_agent() -> None:
     """
     from langgraph_sdk import get_sync_client
 
-    print(f"\n{'=' * 60}")
-    print("AI AGENT MODE")
-    print(f"LangGraph server: {config.langgraph.url} (graph: {config.langgraph.graph_id})")
-    print("Type 'exit' or 'quit' to leave agent mode")
-    print(f"{'=' * 60}\n")
+    logger.info("AI AGENT MODE")
+    logger.info(
+        f"LangGraph server: {config.langgraph.url} (graph: {config.langgraph.graph_id})"
+    )
+    logger.info("Type 'exit' or 'quit' to leave agent mode")
 
     try:
         client = get_sync_client(url=config.langgraph.url)
     except Exception as e:
-        print(f"Error connecting to LangGraph server: {e}")
+        logger.error(f"Error connecting to LangGraph server: {e}")
         return
 
     while True:
@@ -58,7 +60,7 @@ def run_agent() -> None:
                 continue
 
             if user_input.lower() in ("exit", "quit"):
-                print("Exiting agent mode")
+                logger.info("Exiting agent mode")
                 break
 
             thread = client.threads.create()
@@ -72,15 +74,15 @@ def run_agent() -> None:
             if messages:
                 last = messages[-1]
                 content = last.get("content", "") if isinstance(last, dict) else str(last)
-                print(f"\n{content}\n")
+                logger.info(content)
             else:
-                print("\n(no response)\n")
+                logger.info("(no response)")
 
         except KeyboardInterrupt:
-            print("\n\nAgent mode interrupted")
+            logger.info("Agent mode interrupted")
             break
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(f"Error: {e}")
 
 
 def main() -> None:
@@ -156,11 +158,13 @@ Popular IATA codes for Russian cities:
 
     args = parser.parse_args()
 
+    setup_logging(config.logging.level)
+
     # Agent mode doesn't require origin/destination/date
     if args.action == "agent":
-        print("Starting AviaTrade AI Agent mode")
+        logger.info("Starting AviaTrade AI Agent mode")
         run_agent()
-        print("\nDone!")
+        logger.info("Done!")
         return
 
     # Actions that operate on the whole watchlist don't need a single route.
@@ -177,22 +181,24 @@ Popular IATA codes for Russian cities:
         try:
             departure_date = datetime.strptime(args.date, "%Y-%m-%d").date()
             if departure_date < datetime.now().date():
-                print(f"Warning: specified date ({args.date}) is in the past")
+                logger.warning(f"Specified date ({args.date}) is in the past")
         except ValueError:
-            print("Error: Invalid date format. Use YYYY-MM-DD format")
+            logger.error("Invalid date format. Use YYYY-MM-DD format")
             return
 
     # Initialize
-    print("Starting AviaTrade flight price monitoring")
-    print(f"Scraper mode: {config.scraper.mode}")
-    print("Initializing database...")
+    logger.info("Starting AviaTrade flight price monitoring")
+    logger.info(f"Scraper mode: {config.scraper.mode}")
+    logger.info("Initializing database...")
 
     try:
         db = get_database(config.database)
-        print("Database ready")
+        logger.info("Database ready")
     except Exception as e:
-        print(f"Error connecting to database: {e}")
-        print("   Make sure PostgreSQL is running (docker-compose up -d)")
+        logger.error(
+            f"Error connecting to database: {e}. "
+            "Make sure PostgreSQL is running (docker compose up -d postgres)"
+        )
         return
 
     visualizer = FlightPriceVisualizer()
@@ -206,7 +212,10 @@ Popular IATA codes for Russian cities:
             db=db,
         )
         if result is None:
-            print("Scrape task queued (mode=rabbitmq). Data will appear once the scraper processes it.")
+            logger.info(
+                "Scrape task queued (mode=rabbitmq). "
+                "Data will appear once the scraper processes it."
+            )
         return result
 
     # Execute actions
@@ -239,35 +248,35 @@ Popular IATA codes for Russian cities:
         )
     elif args.action == "watch-add":
         record = db.add_watch(args.origin, args.destination, args.date, args.interval)
-        print(
+        logger.info(
             f"Added to watchlist: {record.origin} -> {record.destination} "
             f"on {record.departure_date} (every {record.interval_min} min)"
         )
     elif args.action == "watch-remove":
         removed = db.remove_watch(args.origin, args.destination, args.date)
         if removed:
-            print(
+            logger.info(
                 f"Removed from watchlist: {args.origin} -> {args.destination} on {args.date}"
             )
         else:
-            print(
+            logger.info(
                 f"No watchlist entry found for {args.origin} -> {args.destination} on {args.date}"
             )
     elif args.action == "watch-list":
         routes = db.get_watchlist(enabled_only=False)
         if not routes:
-            print("Watchlist is empty. Add routes with --action watch-add.")
+            logger.info("Watchlist is empty. Add routes with --action watch-add.")
         else:
-            print(f"\nWatchlist ({len(routes)} route(s)):")
-            print("-" * 60)
+            lines = [f"Watchlist ({len(routes)} route(s)):"]
             for r in routes:
                 state = "enabled " if r.enabled else "disabled"
-                print(
+                lines.append(
                     f"  [{state}] {r.origin} -> {r.destination}  {r.departure_date}  "
                     f"every {r.interval_min} min"
                 )
+            logger.info("\n".join(lines))
 
-    print("\nDone!")
+    logger.info("Done!")
 
 
 if __name__ == "__main__":

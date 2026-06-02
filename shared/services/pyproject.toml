@@ -5,6 +5,7 @@ description = "Прикладные use-cases AviaTrade: оркестрация 
 requires-python = ">=3.10"
 dependencies = [
     "aio-pika>=9.4",
+    "loguru>=0.7.3",
     "shared.core",
     "shared.db",
     "shared.scraper",

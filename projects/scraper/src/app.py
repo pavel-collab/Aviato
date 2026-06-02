@@ -5,10 +5,15 @@ from __future__ import annotations
 import asyncio
 import signal
 
+from loguru import logger
+
+from shared.core import setup_logging
+from src.config import config
 from src.consumer import ScraperConsumer
 
 
 async def main() -> None:
+    setup_logging(config.logging.level)
     consumer = ScraperConsumer()
     await consumer.start()
 
@@ -23,7 +28,7 @@ async def main() -> None:
     try:
         await shutdown.wait()
     finally:
-        print("[scraper] shutting down…")
+        logger.info("[scraper] shutting down…")
         await consumer.close()
 
 

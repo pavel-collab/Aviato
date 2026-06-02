@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import traceback
 from typing import Any
 
+from loguru import logger
 from shared.analytics.visualizer import FlightPriceVisualizer
 
 
@@ -24,22 +24,20 @@ def visualize_prices(
         db: Database instance (duck-typed; provides get_price_history).
         visualizer: FlightPriceVisualizer instance.
     """
-    print(f"\n{'=' * 60}")
-    print("Getting price history from database")
-    print(f"{'=' * 60}\n")
+    logger.info("Getting price history from database")
 
     try:
         flight_prices = db.get_price_history(origin, destination, departure_date)
 
         if not flight_prices:
-            print("No data in database for visualization")
-            print("   First collect data with: --action scrape")
+            logger.warning(
+                "No data in database for visualization. First collect data with: --action scrape"
+            )
             return
 
-        print(f"Found records in database: {len(flight_prices)}")
+        logger.info(f"Found records in database: {len(flight_prices)}")
 
         visualizer.print_statistics(flight_prices)
         visualizer.plot_price_history(flight_prices, origin, destination, departure_date)
     except Exception as e:
-        print(f"Error during visualization: {e}")
-        traceback.print_exc()
+        logger.exception(f"Error during visualization: {e}")

@@ -10,6 +10,7 @@ from shared.core.settings import (
     BaseServiceSettings,
     DatabaseSettings,
     LangGraphSettings,
+    LoggingSettings,
     RabbitMQSettings,
     RedisSettings,
     ScraperSettings,
@@ -27,6 +28,7 @@ class BackendSettings(BaseServiceSettings):
     redis: RedisSettings = Field(default_factory=RedisSettings)
     langgraph: LangGraphSettings = Field(default_factory=LangGraphSettings)
     scraper: ScraperSettings = Field(default_factory=ScraperSettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
     host: str = "0.0.0.0"
     port: int = 8000
 

@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any
 
 from botasaurus.browser import Driver, browser
+from loguru import logger
 
 
 class AviasalesScraper:
@@ -55,13 +56,12 @@ class AviasalesScraper:
         departure_date = data["departure_date"]
 
         url = AviasalesScraper.build_search_url(origin, destination, departure_date)
-        print(f"Opening page: {url}")
+        logger.info(f"Opening page: {url}")
 
         try:
             driver.get(url, timeout=120)
         except Exception as e:
-            print(f"Warning: Error loading page: {e}")
-            print("Trying to continue...")
+            logger.warning(f"Error loading page: {e}. Trying to continue...")
 
         # Wait for results to load
         driver.sleep(15)
@@ -72,7 +72,7 @@ class AviasalesScraper:
                 driver.run_js("window.scrollTo(0, document.body.scrollHeight);")
                 driver.sleep(1)
         except Exception as e:
-            print(f"Warning: Could not scroll page: {e}")
+            logger.warning(f"Could not scroll page: {e}")
 
         flights = []
 
@@ -91,11 +91,11 @@ class AviasalesScraper:
             for selector in selectors:
                 flight_cards = driver.select_all(selector)
                 if flight_cards:
-                    print(f"Found flight cards: {len(flight_cards)} (selector: {selector})")
+                    logger.info(f"Found flight cards: {len(flight_cards)} (selector: {selector})")
                     break
 
             if not flight_cards:
-                print("No flight cards found")
+                logger.warning("No flight cards found")
                 return []
 
             for idx, card in enumerate(flight_cards[:20]):
@@ -121,18 +121,18 @@ class AviasalesScraper:
                             del flight_data_json["departure_date_str"]
 
                         flights.append(flight_data_json)
-                        print(
+                        logger.debug(
                             f"Flight {idx + 1}: {flight_data.get('airline', 'N/A')} - "
                             f"{flight_data['price']} RUB"
                         )
                 except Exception as e:
-                    print(f"Error parsing flight card {idx + 1}: {e}")
+                    logger.warning(f"Error parsing flight card {idx + 1}: {e}")
                     continue
 
         except Exception as e:
-            print(f"Error finding flight cards: {e}")
+            logger.error(f"Error finding flight cards: {e}")
 
-        print(f"Total flights collected: {len(flights)}")
+        logger.info(f"Total flights collected: {len(flights)}")
         return flights
 
     @staticmethod
@@ -232,6 +232,6 @@ class AviasalesScraper:
                     flight_data["stops"] = int(stops_match.group(1))
 
         except Exception as e:
-            print(f"Error extracting data: {e}")
+            logger.warning(f"Error extracting data: {e}")
 
         return flight_data if "price" in flight_data else None

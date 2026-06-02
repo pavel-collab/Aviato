@@ -16,6 +16,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from shared.core import setup_logging
 from shared.scraper import ScrapeTask
 from shared.services import MONITORS, publish_scrape
 from src import actions
@@ -29,6 +30,7 @@ _IATA_RE = re.compile(r"^[A-Za-z]{3}$")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging(config.logging.level)
     # Фоновые мониторы (если их запустят через API) публикуют scrape-задачи —
     # настроим их под конфиг backend (БД/режим скрапера/RabbitMQ).
     MONITORS.configure(
