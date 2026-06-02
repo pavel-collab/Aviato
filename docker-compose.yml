@@ -6,10 +6,14 @@
 #           скриптами/CLI и чтобы запускать агента локально через `langgraph dev`.
 #   agent — то же, что infra, плюс LangGraph Server (граф агента) и его run-state БД.
 #   app   — полное приложение: infra + agent + backend + worker + OpenWebUI.
+#   full  — все сервисы без исключения. Нужен, чтобы одной командой
+#           `docker compose --profile full down/stop` остановить вообще всё,
+#           независимо от того, каким профилем оно было поднято.
 #
 # Примеры:
 #   docker compose --profile infra up -d                 # только служебные сервисы
 #   docker compose --profile app   up -d --build         # всё приложение
+#   docker compose --profile full  down                  # остановить все сервисы
 #
 # Конфиги контейнеров монтируются из projects/<svc>/config.docker.yaml
 # (docker-хосты; в .gitignore — создайте из config.docker.example.yaml).
@@ -22,7 +26,7 @@ services:
   postgres:
     image: timescale/timescaledb:latest-pg16
     container_name: flight_prices_db
-    profiles: ["infra", "agent", "app"]
+    profiles: ["infra", "agent", "app", "full"]
     environment:
       POSTGRES_DB: flight_prices
       POSTGRES_USER: flight_user
@@ -42,7 +46,7 @@ services:
   langgraph-postgres:
     image: postgres:16
     container_name: aviatrade_langgraph_db
-    profiles: ["agent", "app"]
+    profiles: ["agent", "app", "full"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -59,7 +63,7 @@ services:
   redis:
     image: redis:7
     container_name: aviatrade_redis
-    profiles: ["infra", "agent", "app"]
+    profiles: ["infra", "agent", "app", "full"]
     ports:
       - "6379:6379"
     healthcheck:
@@ -72,7 +76,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     container_name: aviatrade_rabbitmq
-    profiles: ["infra", "agent", "app"]
+    profiles: ["infra", "agent", "app", "full"]
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -88,7 +92,7 @@ services:
     build:
       context: .
       dockerfile: projects/scraper/Dockerfile
-    profiles: ["infra", "agent", "app"]
+    profiles: ["infra", "agent", "app", "full"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,7 +112,7 @@ services:
       context: .
       dockerfile: projects/agent/Dockerfile
     container_name: aviatrade_agent
-    profiles: ["agent", "app"]
+    profiles: ["agent", "app", "full"]
     ports:
       - "8123:8000"  # REST графа (для отладки; наружу смотрит backend)
     depends_on:
@@ -138,7 +142,7 @@ services:
       context: .
       dockerfile: projects/backend/Dockerfile
     container_name: aviatrade_backend
-    profiles: ["app"]
+    profiles: ["app", "full"]
     ports:
       - "8000:8000"
     depends_on:
@@ -163,7 +167,7 @@ services:
       context: .
       dockerfile: projects/backend/Dockerfile
     container_name: aviatrade_worker
-    profiles: ["app"]
+    profiles: ["app", "full"]
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -181,7 +185,7 @@ services:
   openwebui:
     image: ghcr.io/open-webui/open-webui:main
     container_name: aviatrade_openwebui
-    profiles: ["app"]
+    profiles: ["app", "full"]
     ports:
       - "3000:8080"
     depends_on:
