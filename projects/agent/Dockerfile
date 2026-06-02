@@ -11,6 +11,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
+# Корень workspace: нужен, чтобы uv разрешил `shared.* = { workspace = true }`
+# из pyproject.toml каждого пакета в локальные пути. Без него uv (свежие версии)
+# падает с "references a workspace ... but is not a workspace member".
+COPY pyproject.toml uv.lock ./
+
 # Исходники общих библиотек и сервиса агента.
 COPY shared/ shared/
 COPY projects/agent/ projects/agent/
