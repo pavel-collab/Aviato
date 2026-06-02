@@ -11,11 +11,11 @@ TimescaleDB и даёт AI-агента, который умеет собира�
 ## Что нужно
 
 - **Docker** + **Docker Compose** (профили запуска ниже).
-- **[uv](https://docs.astral.sh/uv/)** — для CLI и запуска агента на хосте (`langgraph dev`).
+- **[uv](https://docs.astral.sh/uv/)** — для скриптов ручного тестирования и запуска агента на хосте (`langgraph dev`).
 - Ключ **OpenRouter** — только для AI-агента (сбор/аналитика/графики работают без него).
 
 ```bash
-uv sync                 # окружение CLI + общие библиотеки
+uv sync                 # окружение workspace: общие библиотеки + зависимости скриптов
 ```
 
 ---
@@ -42,6 +42,25 @@ cp projects/backend/config.docker.example.yaml projects/backend/config.docker.ya
 cp projects/scraper/config.docker.example.yaml projects/scraper/config.docker.yaml
 ```
 
+### Трейсинг агента (LangSmith) — опционально
+
+Переменные `LANGSMITH_*` читаются SDK `langsmith`/`langgraph` **напрямую из
+окружения процесса** (не нашим кодом и не из YAML), поэтому живут в корневом
+`.env` — единственном источнике правды для них:
+
+```bash
+cp .env.example .env          # затем впишите LANGSMITH_API_KEY (smith.langchain.com)
+```
+
+| Где | Откуда берутся переменные |
+|-----|---------------------------|
+| контейнер `agent` | docker-compose подставляет `${LANGSMITH_*}` из корневого `.env` |
+| `langgraph dev` (хост) | тот же `.env` через `"env"` в `projects/agent/langgraph.json` |
+
+Трейсинг выполняется в процессе LangGraph Server (сервис `agent`), который
+изолирует каждый run через `contextvars` — параллельные запуски не мешают друг
+другу. Без `LANGSMITH_API_KEY` трейсинг просто выключен (`LANGSMITH_TRACING=false`).
+
 Профили запуска:
 
 | Профиль | Что поднимает |
@@ -54,14 +73,14 @@ cp projects/scraper/config.docker.example.yaml projects/scraper/config.docker.ya
 
 ## Сценарий 1 — только служебные сервисы (проверка скрапера)
 
-Поднять инфраструктуру и проверить сбор данных скриптом/CLI (скрапер крутится в
+Поднять инфраструктуру и проверить сбор данных скриптом (скрапер крутится в
 контейнере и забирает задачи из очереди):
 
 ```bash
 docker compose --profile infra up -d           # postgres, redis, rabbitmq, scraper
 
 # В config.yaml выставьте scraper.mode: rabbitmq, затем поставьте задачу в очередь:
-uv run aviatrade --origin MOW --destination LED --date 2026-09-15 --action scrape
+uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action scrape
 
 docker compose logs -f scraper                  # видно, как задача обрабатывается
 docker compose exec postgres \
@@ -152,13 +171,17 @@ docker compose --profile app down          # или: down -v
 
 ---
 
-## CLI (для скриптов и автоматизации)
+## Скрипты ручного тестирования (`scripts/`)
+
+Самодостаточные скрипты поверх `shared.*` для ручной проверки сбора/аналитики/
+мониторинга без backend и OpenWebUI. Не входят в docker-compose и не собираются в
+пакет — запускаются напрямую из окружения workspace (см. `scripts/README.md`).
 
 ```bash
-uv run aviatrade --origin MOW --destination LED --date 2026-09-15 --action scrape
-uv run aviatrade --action watch-list
-uv run aviatrade --action monitor-all --interval 60
-uv run aviatrade --action agent        # интерактивный чат через LangGraph Server
+uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action scrape
+uv run python scripts/cli.py --action watch-list
+uv run python scripts/cli.py --action monitor-all --interval 60
+uv run python scripts/cli.py --action agent        # интерактивный чат через LangGraph Server
 ```
 
 Действия `--action`: `scrape`, `visualize`, `monitor`, `both`, `agent`,

@@ -12,19 +12,20 @@ tools (scraping, watchlist, background monitoring), and a **FastAPI backend** wi
 an OpenAI-compatible API consumed by an **OpenWebUI** frontend.
 
 The repo is a **`uv` workspace monorepo** (modeled on `retrieval-experiments`):
-shared libraries in `shared/*`, deployable services in `projects/*`, and a thin
-CLI tool at the repo root.
+shared libraries in `shared/*`, deployable services in `projects/*`, and
+self-contained manual-testing scripts in `scripts/`. The workspace root is a
+non-package (`package = false`) — it ships no code of its own.
 
 ## Layout
 
 ```
 AviaTrade/
-├── pyproject.toml            # workspace root + the `aviatrade` CLI package
+├── pyproject.toml            # workspace root (package = false; deps for scripts/)
 ├── uv.lock                   # committed (Dockerfiles build with --frozen)
-├── config.example.yaml       # CLI config template (copy to config.yaml; gitignored)
+├── config.example.yaml       # config template (copy to config.yaml; gitignored)
 ├── docker-compose.yml
 ├── initdb/01-init-timescaledb.sql
-├── src/aviatrade/            # CLI tool (root package): __init__, config, cli/{main,lib}
+├── scripts/                  # self-contained manual-testing scripts: cli.py, _settings.py
 │
 ├── shared/                   # installable libraries (package name shared.<name>)
 │   ├── core/      shared/core/{settings.py, logging.py}      # pydantic-settings YAML base + models
@@ -49,15 +50,16 @@ cleanly under `langgraph dev` and in the langgraph-api image).
 
 All config is pydantic-settings loaded **from YAML only** (no `.env`). The base
 `shared.core.settings.BaseServiceSettings` reads a single YAML file via
-`YamlConfigSettingsSource`; each service/CLI subclasses it (`SettingsConfigDict(yaml_file=...)`)
-and selects the sections it needs. Override the path with `SETTINGS_PATH`.
+`YamlConfigSettingsSource`; each service (and `scripts/_settings.py`) subclasses it
+(`SettingsConfigDict(yaml_file=...)`) and selects the sections it needs. Override
+the path with `SETTINGS_PATH`.
 
 - Shared models: `DatabaseSettings` (sync `dsn`), `RabbitMQSettings` (`scrape_queue`,
   `job_queue`, `url`), `RedisSettings`, `LLMSettings` (OpenRouter), `LangGraphSettings`,
   `ScraperSettings` (`mode: local|rabbitmq`).
 - **Two config files per service, differing only in hostnames** (both gitignored;
-  commit only the `*.example.yaml`): `config.yaml` (localhost — host tools: CLI,
-  `langgraph dev`) and `config.docker.yaml` (compose service names — containers).
+  commit only the `*.example.yaml`): `config.yaml` (localhost — host tools:
+  `scripts/`, `langgraph dev`) and `config.docker.yaml` (compose service names — containers).
   docker-compose mounts `projects/<svc>/config.docker.yaml` and sets `SETTINGS_PATH`
   to it. The path is resolved via `shared.core.settings.resolve_settings_path(fallback)`.
   Without a YAML file, defaults apply (localhost, `scraper.mode=local`).
@@ -67,17 +69,17 @@ and selects the sections it needs. Override the path with `SETTINGS_PATH`.
 
 ```bash
 # Environment (uv workspace)
-uv sync                         # root CLI + shared libs
+uv sync                         # shared libs + scripts deps (root is package = false)
 uv sync --extra dev             # + pytest/mypy/ruff
 uv sync --project projects/agent --extra langgraph   # agent service deps
 
 # Database only (TimescaleDB; initdb runs on first empty volume)
 docker compose up -d postgres
 
-# CLI (root package). scraper.mode=local scrapes in-process; rabbitmq publishes a task.
-uv run aviatrade --origin MOW --destination LED --date 2025-12-15 --action scrape
-uv run aviatrade --action watch-list
-uv run aviatrade --action agent          # talks to the LangGraph server via SDK
+# Manual-testing scripts (scripts/). scraper.mode=local scrapes in-process; rabbitmq publishes a task.
+uv run python scripts/cli.py --origin MOW --destination LED --date 2025-12-15 --action scrape
+uv run python scripts/cli.py --action watch-list
+uv run python scripts/cli.py --action agent          # talks to the LangGraph server via SDK
 
 # Agent graph locally (LangGraph Studio)
 uv run --project projects/agent --extra langgraph langgraph dev
@@ -104,7 +106,7 @@ LLM calls). Backend REST + OpenAI API on `:8000` (`/docs`).
 ## Architecture (data flow)
 
 ```
-CLI (src/aviatrade/cli)        → shared.services.dispatch_scrape (local|rabbitmq) → shared.db
+scripts/cli.py                 → shared.services.dispatch_scrape (local|rabbitmq) → shared.db
                                 → shared.analytics (charts/stats); agent via langgraph-sdk
 
 OpenWebUI → backend /v1/chat/completions (openai_api) → lg_client → LangGraph Server (agent)
@@ -159,7 +161,7 @@ created by `initdb/01-init-timescaledb.sql` on first DB start.
 
 ## Development Notes
 - Each phase of the monorepo migration is verified; the DB schema and existing data are unchanged.
-- Scraping is **asynchronous** in `rabbitmq` mode: agent/CLI submit a task and don't get a
+- Scraping is **asynchronous** in `rabbitmq` mode: agent/scripts submit a task and don't get a
   synchronous saved-count (status is recoverable via Redis `job:{id}` / `GET /jobs/{id}`).
   Use `scraper.mode: local` for in-process scraping in dev (needs Chromium, no broker).
 - The agent requires `llm.api_key` (OpenRouter) in its `config.yaml`.

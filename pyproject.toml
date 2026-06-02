@@ -1,32 +1,19 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
+# Корень монорепо-workspace AviaTrade. Это НЕ устанавливаемый пакет
+# (`package = false`): здесь нет своего кода — только общие библиотеки в
+# `shared/*` и деплой-сервисы в `projects/*`. Зависимости ниже задают окружение
+# для скриптов ручного тестирования (`scripts/`): они тянут общие библиотеки и
+# langgraph-sdk, но сам корень ничего не собирает и не экспортирует.
 [project]
 name = "aviatrade"
 version = "1.0.0"
-description = "Flight price monitoring system for Aviasales.ru"
+description = "Flight price monitoring system for Aviasales.ru (workspace root)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
-authors = [
-    {name = "AviaTrade Team"}
-]
-keywords = ["aviation", "flights", "prices", "monitoring", "scraping"]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
-]
+license = { text = "MIT" }
 
-# CLI-инструмент. Тяжёлые зависимости (botasaurus/sqlalchemy/matplotlib/…) и сам
-# граф приходят транзитивно через shared.*; здесь — только то, что нужно CLI
-# напрямую (langgraph-sdk для интерактивного режима агента).
+# Окружение для скриптов в `scripts/`. Тяжёлые зависимости
+# (botasaurus/sqlalchemy/matplotlib/…) приходят транзитивно через shared.*;
+# напрямую нужен только langgraph-sdk (интерактивный режим агента в scripts/cli.py).
 dependencies = [
     "langgraph-sdk>=0.1",
     "shared.core",
@@ -44,18 +31,10 @@ dev = [
     "ruff>=0.1",
 ]
 
-[project.scripts]
-aviatrade = "aviatrade.cli.main:main"
-
-[project.urls]
-Homepage = "https://github.com/aviatrade/aviatrade"
-Repository = "https://github.com/aviatrade/aviatrade"
-
 # --- uv workspace (монорепо: общие либы в shared/, сервисы в projects/) ---------
-# На время миграции корень остаётся пакетом `aviatrade` И одновременно корнем
-# workspace — так старый CLI и временные re-export шимы продолжают работать, пока
-# модули переезжают в shared/*. По завершении миграции (фаза 9) корень станет
-# package=false, а src/aviatrade будет удалён.
+[tool.uv]
+package = false
+
 [tool.uv.workspace]
 members = ["projects/*", "shared/*"]
 
@@ -66,12 +45,6 @@ members = ["projects/*", "shared/*"]
 "shared.scraper" = { workspace = true }
 "shared.analytics" = { workspace = true }
 "shared.services" = { workspace = true }
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
 
 [tool.ruff]
 line-length = 100

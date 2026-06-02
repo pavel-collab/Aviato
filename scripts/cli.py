@@ -1,10 +1,22 @@
-"""Command-line interface for AviaTrade flight price monitoring."""
+#!/usr/bin/env python
+"""Скрипт ручного тестирования AviaTrade поверх ``shared.*``.
+
+Самодостаточный CLI: позволяет вручную дёрнуть скрапинг/визуализацию/мониторинг и
+watchlist напрямую через общие библиотеки, а также поговорить с агентом через
+LangGraph Server — не поднимая backend/OpenWebUI. Это инструмент разработчика, а
+не деплой-сервис, поэтому он живёт в ``scripts/`` и запускается напрямую:
+
+    uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action scrape
+    uv run python scripts/cli.py --action watch-list
+    uv run python scripts/cli.py --action monitor-all --interval 60
+    uv run python scripts/cli.py --action agent
+"""
 
 import argparse
 from datetime import datetime
 
-from aviatrade.cli.lib import run_agent
-from aviatrade.config import config
+from _settings import config
+
 from shared.analytics import FlightPriceVisualizer, visualize_prices
 from shared.scraper import ScrapeTask
 from shared.services import (
@@ -15,39 +27,95 @@ from shared.services import (
 )
 
 
+def run_agent() -> None:
+    """Интерактивный диалог с агентом через LangGraph Server (langgraph-sdk).
+
+    Скрипт выступает клиентом сервиса агента: отправляет каждое сообщение в
+    развёрнутый граф по SDK и печатает финальный ответ. Сначала поднимите сервер
+    (``uv run --project projects/agent --extra langgraph langgraph dev`` для
+    локальной отладки или docker-сервис ``agent``) и укажите ``langgraph.url`` в
+    config.yaml.
+    """
+    from langgraph_sdk import get_sync_client
+
+    print(f"\n{'=' * 60}")
+    print("AI AGENT MODE")
+    print(f"LangGraph server: {config.langgraph.url} (graph: {config.langgraph.graph_id})")
+    print("Type 'exit' or 'quit' to leave agent mode")
+    print(f"{'=' * 60}\n")
+
+    try:
+        client = get_sync_client(url=config.langgraph.url)
+    except Exception as e:
+        print(f"Error connecting to LangGraph server: {e}")
+        return
+
+    while True:
+        try:
+            user_input = input("Agent> ").strip()
+
+            if not user_input:
+                continue
+
+            if user_input.lower() in ("exit", "quit"):
+                print("Exiting agent mode")
+                break
+
+            thread = client.threads.create()
+            result = client.runs.wait(
+                thread["thread_id"],
+                config.langgraph.graph_id,
+                input={"messages": [{"role": "human", "content": user_input}]},
+            )
+
+            messages = result.get("messages", []) if isinstance(result, dict) else []
+            if messages:
+                last = messages[-1]
+                content = last.get("content", "") if isinstance(last, dict) else str(last)
+                print(f"\n{content}\n")
+            else:
+                print("\n(no response)\n")
+
+        except KeyboardInterrupt:
+            print("\n\nAgent mode interrupted")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+
+
 def main() -> None:
-    """Main entry point for the CLI."""
+    """Точка входа скрипта ручного тестирования."""
     parser = argparse.ArgumentParser(
-        description="Flight price monitoring for Aviasales.ru",
+        description="Flight price monitoring for Aviasales.ru (manual-testing CLI)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Scrape flights Moscow -> Saint-Petersburg on 2025-01-15
-  aviatrade --origin MOW --destination LED --date 2025-01-15 --action scrape
+  # Scrape flights Moscow -> Saint-Petersburg on 2026-09-15
+  uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action scrape
 
   # Visualize price history
-  aviatrade --origin MOW --destination LED --date 2025-01-15 --action visualize
+  uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action visualize
 
   # Monitor with 30-minute interval
-  aviatrade --origin MOW --destination LED --date 2025-01-15 --action monitor --interval 30
+  uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action monitor --interval 30
 
   # Scrape and visualize together
-  aviatrade --origin MOW --destination LED --date 2025-01-15 --action both
+  uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action both
 
   # Add a route to the multi-direction watchlist
-  aviatrade --origin MOW --destination AER --date 2025-01-15 --action watch-add --interval 30
+  uv run python scripts/cli.py --origin MOW --destination AER --date 2026-09-15 --action watch-add --interval 30
 
   # Show the watchlist
-  aviatrade --action watch-list
+  uv run python scripts/cli.py --action watch-list
 
   # Remove a route from the watchlist
-  aviatrade --origin MOW --destination AER --date 2025-01-15 --action watch-remove
+  uv run python scripts/cli.py --origin MOW --destination AER --date 2026-09-15 --action watch-remove
 
   # Monitor every route in the watchlist (multi-direction)
-  aviatrade --action monitor-all --interval 60
+  uv run python scripts/cli.py --action monitor-all --interval 60
 
   # Run AI agent (talks to the LangGraph server via SDK)
-  aviatrade --action agent
+  uv run python scripts/cli.py --action agent
 
 Popular IATA codes for Russian cities:
   MOW - Moscow, LED - Saint-Petersburg, SVX - Yekaterinburg
