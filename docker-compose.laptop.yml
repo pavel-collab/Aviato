@@ -1,0 +1,148 @@
+# Верхний (интерактивный) слой AviaTrade для НОУТБУКА в режиме split-деплоя.
+#
+# Раскладка:
+#   Raspberry Pi (24/7)  — `docker compose --profile infra up -d`:
+#       TimescaleDB + RabbitMQ + Redis + scraper (+ планировщик cron на хосте Pi).
+#   Ноутбук (по требованию) — ЭТОТ файл:
+#       agent (LangGraph Server) + его локальный run-state (langgraph-postgres + redis)
+#       + backend + worker + openwebui.
+#
+# Запуск:   docker compose -f docker-compose.laptop.yml up -d --build
+# Останов:  docker compose -f docker-compose.laptop.yml down
+#
+# ВАЖНО про адреса:
+#   - Прикладные данные (БД flight_prices, RabbitMQ, прикладной Redis статусов job:{id})
+#     живут на Pi. Их адрес задаётся в config.laptop.yaml каждого сервиса (поле host = IP Pi).
+#   - Run-state самого LangGraph Server (langgraph-postgres + redis /0) держим ЛОКАЛЬНО,
+#     чтобы каждый шаг графа не бегал по сети — это сервисы redis/langgraph-postgres ниже.
+#   - Прикладной Redis (статусы задач) НА Pi: туда пишет статусы скрапер, читает backend.
+#     Поэтому redis.host в projects/backend/config.laptop.yaml = IP Pi, а НЕ локальный redis.
+
+services:
+  # --- Локальный run-state LangGraph Server (НЕ данные приложения) -----------
+  langgraph-postgres:
+    image: postgres:16
+    container_name: aviatrade_langgraph_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - langgraph_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Локальный Redis — ТОЛЬКО внутренняя очередь LangGraph Server (БД /0).
+  # Прикладные статусы job:{id} (БД /1) лежат в Redis на Pi (см. backend config).
+  redis:
+    image: redis:7
+    container_name: aviatrade_redis_local
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --- LangGraph Server (граф агента) ----------------------------------------
+  agent:
+    build:
+      context: .
+      dockerfile: projects/agent/Dockerfile
+    container_name: aviatrade_agent
+    ports:
+      - "8123:8000"  # REST графа (для отладки; наружу смотрит backend)
+    depends_on:
+      langgraph-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Run-state самого LangGraph Server — ЛОКАЛЬНЫЕ сервисы выше.
+      DATABASE_URI: postgres://postgres:postgres@langgraph-postgres:5432/postgres?sslmode=disable
+      REDIS_URI: redis://redis:6379
+      # Конфиг приложения графа (БД/LLM/scraper/rabbitmq) — хосты указывают на Pi.
+      SETTINGS_PATH: /app/projects/agent/config.laptop.yaml
+      PYTHONUNBUFFERED: "1"
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-aviatrade}
+    volumes:
+      - ./projects/agent/config.laptop.yaml:/app/projects/agent/config.laptop.yaml:ro
+      - ./charts:/app/charts
+
+  # --- FastAPI backend (внешний API) -----------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: projects/backend/Dockerfile
+    container_name: aviatrade_backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      agent:
+        condition: service_started
+    environment:
+      SETTINGS_PATH: /app/projects/backend/config.laptop.yaml
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./projects/backend/config.laptop.yaml:/app/projects/backend/config.laptop.yaml:ro
+      - ./charts:/app/charts
+    command: ["python", "-m", "src"]
+
+  # --- Worker: chat-очередь (на Pi) → граф (локально, через SDK) -------------
+  worker:
+    build:
+      context: .
+      dockerfile: projects/backend/Dockerfile
+    container_name: aviatrade_worker
+    depends_on:
+      agent:
+        condition: service_started
+    environment:
+      SETTINGS_PATH: /app/projects/backend/config.laptop.yaml
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./projects/backend/config.laptop.yaml:/app/projects/backend/config.laptop.yaml:ro
+    command: ["python", "-m", "src.worker"]
+
+  # --- Frontend: OpenWebUI ---------------------------------------------------
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: aviatrade_openwebui
+    ports:
+      - "3000:8080"
+    depends_on:
+      backend:
+        condition: service_started
+    environment:
+      OPENAI_API_BASE_URL: http://backend:8000/v1
+      OPENAI_API_KEY: aviatrade-local
+      ENABLE_OPENAI_API: "true"
+      ENABLE_OLLAMA_API: "false"
+      WEBUI_NAME: "AviaTrade Assistant"
+      WEBUI_AUTH: "false"
+      ENABLE_SIGNUP: "false"
+      DEFAULT_MODELS: "aviatrade-agent"
+      DEFAULT_LOCALE: "ru"
+      ENABLE_TITLE_GENERATION: "false"
+      ENABLE_FOLLOW_UP_GENERATION: "false"
+      ENABLE_SEARCH_QUERY_GENERATION: "false"
+      ENABLE_RETRIEVAL_QUERY_GENERATION: "false"
+      ENABLE_TAGS_GENERATION: "false"
+      ENABLE_AUTOCOMPLETE_GENERATION: "false"
+      ENABLE_EVALUATION_ARENA_MODELS: "false"
+      ENABLE_WEB_SEARCH: "false"
+      ENABLE_IMAGE_GENERATION: "false"
+      ENABLE_CODE_INTERPRETER: "false"
+      ENABLE_COMMUNITY_SHARING: "false"
+      ENABLE_MESSAGE_RATING: "false"
+    volumes:
+      - openwebui_data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  langgraph_postgres_data:
+  openwebui_data:

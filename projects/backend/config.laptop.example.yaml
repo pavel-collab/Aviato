@@ -1,0 +1,41 @@
+# Конфиг backend/worker для SPLIT-деплоя: backend на НОУТБУКЕ, данные на Pi.
+# Скопируйте в config.laptop.yaml и впишите IP Pi.
+# (config.laptop.yaml в .gitignore.)
+
+database:
+  host: 192.168.1.50   # ← ЗАМЕНИТЕ на IP вашего Raspberry Pi
+  port: 5432
+  user: flight_user
+  password: flight_password
+  database: flight_prices
+
+rabbitmq:
+  host: 192.168.1.50   # ← ЗАМЕНИТЕ на IP вашего Raspberry Pi
+  port: 5672
+  user: guest
+  password: guest
+  scrape_queue: scrape_tasks
+  job_queue: aviatrade_jobs
+
+redis:
+  # ВАЖНО: прикладной Redis (статусы job:{id}) — на Pi, туда пишет статусы скрапер.
+  host: 192.168.1.50   # ← ЗАМЕНИТЕ на IP вашего Raspberry Pi
+  port: 6379
+  db: 1
+
+langgraph:
+  # LangGraph Server — локальный сервис agent в сети compose ноутбука.
+  url: "http://agent:8000"
+  graph_id: "aviatrade_agent"
+
+scraper:
+  mode: rabbitmq
+  headless: true
+  max_flights: 20
+
+charts:
+  output_dir: /app/charts
+  public_base_url: "http://localhost:8000/static"
+
+host: "0.0.0.0"
+port: 8000

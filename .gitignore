@@ -53,3 +53,5 @@ config.yaml
 **/config.yaml
 config.docker.yaml
 **/config.docker.yaml
+config.laptop.yaml
+**/config.laptop.yaml

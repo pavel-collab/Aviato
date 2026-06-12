@@ -142,6 +142,132 @@ docker compose --profile app down          # или: down -v
 
 ---
 
+## Сценарий 4 — раздельный деплой (Raspberry Pi 24/7 + ноутбук по требованию)
+
+Тяжёлый интерактивный слой (LangGraph Server жрёт ресурсы) не тянется на ARM Pi,
+но и держать его постоянно на рабочем ноутбуке нельзя — а скрапинг должен идти
+круглосуточно. Решение: **сбор данных живёт на Pi 24/7, а агент + UI поднимаются
+на ноутбуке по требованию** и ходят за данными на Pi по локальной сети.
+
+```
+┌─────────── Raspberry Pi (24/7) ───────────┐      ┌──── Ноутбук (по требованию) ────┐
+│  TimescaleDB :5432   RabbitMQ :5672        │      │  agent (LangGraph Server)       │
+│  Redis :6379                               │      │  langgraph-postgres + redis     │
+│  scraper (Chromium, consumer scrape_tasks) │ LAN  │  backend + worker + openwebui   │
+│  cron → cli.py --action scrape (publish)   │◄────►│  :3000                          │
+│  = docker compose --profile infra          │      │  = docker-compose.laptop.yml    │
+└────────────────────────────────────────────┘      └─────────────────────────────────┘
+```
+
+Развязка — через очередь `scrape_tasks` на Pi: задачи, уже попавшие в очередь,
+скрапер на Pi отрабатывает **независимо** от того, включён ли ноутбук. Поэтому
+ритм сбора задаёт **планировщик на Pi** (cron), а не фоновые мониторы агента
+(их потоки живут в процессе агента — на ноутбуке, и гаснут вместе с ним).
+
+### Часть A — Raspberry Pi (служебный слой + планировщик)
+
+**A1. Поднять инфраструктуру** (как в Сценарии 1; конфиги контейнеров — на именах
+сервисов compose, менять не нужно):
+
+```bash
+docker compose --profile infra up -d           # postgres, redis, rabbitmq, scraper
+hostname -I                                     # узнать IP Pi (понадобится ноутбуку)
+```
+
+**A2. Открыть RabbitMQ для ноутбука.** Пользователь `guest/guest` работает только
+с localhost — подключение ноутбук→Pi он отклонит. Создать отдельного пользователя
+(один раз):
+
+```bash
+docker compose exec rabbitmq rabbitmqctl add_user aviatrade <пароль>
+docker compose exec rabbitmq rabbitmqctl set_user_tags aviatrade administrator
+docker compose exec rabbitmq rabbitmqctl set_permissions -p / aviatrade ".*" ".*" ".*"
+```
+
+> БД и Redis пускают по LAN как есть (пароль БД задан; Redis без пароля — при
+> необходимости закройте firewall'ом/`requirepass`).
+
+**A3. Планировщик на хосте Pi.** В режиме `rabbitmq` действие `scrape` только
+**публикует** задачу в очередь и выходит — идеально для cron. Нужен `uv` и копия
+репозитория на Pi:
+
+```bash
+uv sync                                         # окружение workspace на Pi
+cp config.example.yaml config.yaml              # localhost (порты Pi проброшены), scraper.mode: rabbitmq
+```
+
+cli.py на хосте Pi ходит на `localhost`, где `guest/guest` работает (loopback) —
+менять учётку в `config.yaml` Pi не нужно. Пример `/etc/cron.d/aviatrade`
+(одна строка = один маршрут):
+
+```cron
+# каждые 30 минут публиковать задачу на сбор MOW → LED на 2026-09-15
+*/30 * * * * pi cd /home/pi/AviaTrade && SETTINGS_PATH=$PWD/config.yaml \
+  uv run python scripts/cli.py --origin MOW --destination LED --date 2026-09-15 --action scrape \
+  >> /var/log/aviatrade-cron.log 2>&1
+```
+
+> Альтернатива cron — один долгоживущий `cli.py --action monitor-all --interval 60`
+> под `systemd` (расписание берётся из таблицы `watchlist` в БД, а не из crontab).
+
+### Часть B — Ноутбук (агент + UI по требованию)
+
+Верхний слой вынесен в отдельный `docker-compose.laptop.yml` (только `agent` +
+его локальные `langgraph-postgres`/`redis` для run-state + `backend` + `worker` +
+`openwebui`; служебных сервисов в нём нет — они на Pi).
+
+**B1. Конфиги ноутбука** (уже есть готовые `config.laptop.yaml`, в `.gitignore`):
+
+```bash
+# при первой настройке — из шаблонов:
+cp projects/agent/config.laptop.example.yaml   projects/agent/config.laptop.yaml
+cp projects/backend/config.laptop.example.yaml projects/backend/config.laptop.yaml
+```
+
+В обоих файлах заменить `192.168.1.50` на **IP Pi** (все поля `host`), вписать
+`rabbitmq.user/password` = `aviatrade/<пароль>` из шага A2 и `llm.api_key`
+(OpenRouter) в конфиге агента. Логика адресов:
+
+| Что | Куда смотрит | Почему |
+|-----|--------------|--------|
+| `database` / `rabbitmq` (оба конфига) | **Pi** | данные и очереди живут на Pi |
+| `redis` (backend) | **Pi** | статусы `job:{id}` пишет скрапер на Pi |
+| `DATABASE_URI` / `REDIS_URI` контейнера `agent` | **локально** | run-state LangGraph — чтобы граф не бегал по сети |
+| `langgraph.url` (backend) | **локально** (`agent:8000`) | сервер агента — в сети compose ноутбука |
+
+**B2. Запуск:**
+
+```bash
+docker compose -f docker-compose.laptop.yml up -d --build
+```
+
+Точки входа (всё на ноутбуке):
+
+| Что | Адрес |
+|-----|-------|
+| Чат с агентом (OpenWebUI) | http://localhost:3000 |
+| Backend REST + Swagger | http://localhost:8000/docs |
+
+**B3. Остановить, когда ноутбук не нужен** (Pi продолжает собирать данные):
+
+```bash
+docker compose -f docker-compose.laptop.yml down
+```
+
+### Что переживает выключение ноутбука
+
+| Состояние на момент остановки ноута | Продолжится на Pi? |
+|-------------------------------------|--------------------|
+| Задача уже в очереди / уже скрапится | ✅ да (развязка через `scrape_tasks`) |
+| Публикация по cron на Pi | ✅ да (планировщик на Pi) |
+| Следующий цикл фонового монитора агента | ❌ нет (поток жил на ноутбуке) |
+| Ручной запрос через OpenWebUI | ❌ нет (нужен включённый ноутбук) |
+
+> На ноутбуке запускайте **только** `docker-compose.laptop.yml`. Обычный
+> `docker-compose.yml` поднял бы собственную инфраструктуру и продублировал Pi.
+
+---
+
 ## Чек-лист первого полного запуска
 
 После `--profile app` проверьте через **OpenWebUI** (http://localhost:3000) или
